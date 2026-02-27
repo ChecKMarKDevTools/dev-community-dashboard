@@ -1,9 +1,4 @@
-# This file is a pointer to ensure context is pulled into the IDE.
+# Repo Instructions
 
-# The canonical rules and memory for this project are located in AGENTS.md.
-
-# Please refer to AGENTS.md for all project-wide Agent instructions.
-
-# Include AGENTS.md instructions:
-
-# @AGENTS.md
+Refer to @AGENTS.md for project memory.
+Do not modify this file.
