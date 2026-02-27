@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!; // Using service key to bypass RLS for this backend sync
+const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY!; // Using new secret key to bypass RLS for this backend sync
 
-export const supabase = createClient(supabaseUrl, supabaseServiceKey);
+export const supabase = createClient(supabaseUrl, supabaseSecretKey);
