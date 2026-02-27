@@ -12,6 +12,12 @@ pre-commit:
       run: pnpm prettier --check {staged_files}
     trufflehog:
       run: docker run --rm -v "$PWD:/pwd" trufflesecurity/trufflehog:latest git file:///pwd --fail
+    actionlint:
+      glob: ".github/workflows/*.yml"
+      run: docker run --rm -v "$PWD:/repo" --workdir /repo rhysd/actionlint:latest -color
+    hadolint:
+      glob: "Dockerfile"
+      run: docker run --rm -i hadolint/hadolint < Dockerfile
 
 pre-push:
   parallel: true

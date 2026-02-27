@@ -26,13 +26,21 @@ security:  ## Run package security audit
 secret-scan:  ## Run secret scanner using TruffleHog in Docker
 	docker run --rm -v "$$PWD:/pwd" trufflesecurity/trufflehog:latest git file:///pwd --fail
 
-ai-checks:  ## Single command: format → lint → security → secret-scan → test
+actionlint:  ## Run Actionlint in Docker
+	docker run --rm -v "$$PWD:/repo" --workdir /repo rhysd/actionlint:latest -color
+
+hadolint:  ## Run Hadolint in Docker
+	docker run --rm -i hadolint/hadolint < Dockerfile
+
+ai-checks:  ## Single command: format → lint → security → secret-scan → actionlint → hadolint → test
 	@set -e; \
-	echo "🔍 format → lint (eslint + stylelint) → security → secret-scan → test"; \
+	echo "🔍 format → lint (eslint + stylelint) → security → secret-scan → actionlint → hadolint → test"; \
 	$(MAKE) format && echo "  ✓ format" || (echo "  ✗ format"; exit 1); \
 	$(MAKE) lint && echo "  ✓ lint" || (echo "  ✗ lint"; exit 1); \
 	$(MAKE) security && echo "  ✓ security" || (echo "  ✗ security"; exit 1); \
 	$(MAKE) secret-scan && echo "  ✓ secret-scan" || (echo "  ✗ secret-scan"; exit 1); \
+	$(MAKE) actionlint && echo "  ✓ actionlint" || (echo "  ✗ actionlint"; exit 1); \
+	$(MAKE) hadolint && echo "  ✓ hadolint" || (echo "  ✗ hadolint"; exit 1); \
 	$(MAKE) test && echo "  ✓ test" || (echo "  ✗ test"; exit 1); \
 	echo "✅ Ready to commit."
 
