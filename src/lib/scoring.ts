@@ -82,7 +82,7 @@ export function evaluatePriority(
 
   if (recentPostsByAuthor.length > 1) {
     // Check publish timing gaps
-    const gaps = [];
+    const gaps: number[] = [];
     for (let i = 0; i < recentPostsByAuthor.length - 1; i++) {
       const date1 = new Date(recentPostsByAuthor[i].published_at).getTime();
       const date2 = new Date(recentPostsByAuthor[i + 1].published_at).getTime();
