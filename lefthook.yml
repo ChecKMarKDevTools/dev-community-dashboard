@@ -6,18 +6,24 @@ commit-msg:
 pre-commit:
   parallel: true
   commands:
-    stylelint:
-      glob: "*.{css,scss}"
-      run: pnpm stylelint {staged_files}
+    format:
+      priority: 1
+      glob: "*.{js,ts,jsx,tsx,css,md,json,yml,yaml}"
+      run: pnpm prettier --write {staged_files}
+      stage_fixed: true
     eslint:
+      priority: 2
       glob: "*.{js,ts,jsx,tsx}"
       run: pnpm eslint {staged_files}
-    prettier:
-      glob: "*.{js,ts,jsx,tsx,css,md,json}"
-      run: pnpm prettier --check {staged_files}
+    stylelint:
+      priority: 2
+      glob: "*.{css,scss}"
+      run: pnpm stylelint {staged_files}
     trufflehog:
+      priority: 2
       run: docker run --rm -v "$PWD:/pwd" trufflesecurity/trufflehog:latest git file:///pwd --fail
     actionlint:
+      priority: 2
       glob: ".github/workflows/*.yml"
       run: docker run --rm -v "$PWD:/repo" --workdir /repo rhysd/actionlint:latest -color
 
