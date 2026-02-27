@@ -15,7 +15,12 @@ describe("GET /api/posts/[id]", () => {
   });
 
   it("fetches single post and recent posts successfully", async () => {
-    const mockPost = { id: 1, title: "Test", author: "user1" };
+    const mockPost = {
+      id: 1,
+      title: "Test",
+      author: "user1",
+      url: "https://example.com",
+    };
     const mockRecent = [{ id: 2, title: "Recent" }];
 
     const mockSingle1 = vi
@@ -26,7 +31,6 @@ describe("GET /api/posts/[id]", () => {
       .mockResolvedValue({ data: mockRecent, error: null });
 
     (supabase.from as Mock).mockImplementation(() => {
-      // Very loose mock to avoid deep chaining issues
       const mockChain: Record<string, Mock> = {
         select: vi.fn(() => mockChain),
         eq: vi.fn(() => mockChain),
@@ -44,8 +48,38 @@ describe("GET /api/posts/[id]", () => {
     const json = await res.json();
 
     expect(res.status).toBe(200);
-    expect(json.article.id).toBe(1);
-    expect(json.recentPosts[0].id).toBe(2);
+    // Response is now flattened: article fields at top level + recent_posts
+    expect(json.id).toBe(1);
+    expect(json.title).toBe("Test");
+    expect(json.recent_posts[0].id).toBe(2);
+  });
+
+  it("defaults recent_posts to empty array when recentPosts is null", async () => {
+    const mockPost = { id: 1, title: "Test", author: "user1" };
+
+    const mockSingle = vi
+      .fn()
+      .mockResolvedValue({ data: mockPost, error: null });
+    const mockLimit = vi.fn().mockResolvedValue({ data: null, error: null });
+
+    (supabase.from as Mock).mockImplementation(() => {
+      const mockChain: Record<string, Mock> = {
+        select: vi.fn(() => mockChain),
+        eq: vi.fn(() => mockChain),
+        neq: vi.fn(() => mockChain),
+        order: vi.fn(() => mockChain),
+        single: mockSingle,
+        limit: mockLimit,
+      };
+      return mockChain;
+    });
+
+    const req = new NextRequest("http://localhost:3000/api/posts/1");
+    const res = await GET(req, { params: Promise.resolve({ id: "1" }) });
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.recent_posts).toEqual([]);
   });
 
   it("handles invalid ID", async () => {
@@ -74,7 +108,7 @@ describe("GET /api/posts/[id]", () => {
     expect(res.status).toBe(404);
   });
 
-  it("handles server errors", async () => {
+  it("handles server errors when fetching recent posts", async () => {
     const mockChain: Record<string, Mock> = {
       select: vi.fn(() => mockChain),
       eq: vi.fn(() => mockChain),

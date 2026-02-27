@@ -15,7 +15,7 @@ export function Badge({
   className,
   variant = "default",
   ...props
-}: BadgeProps) {
+}: Readonly<BadgeProps>) {
   return (
     <div
       className={cn(

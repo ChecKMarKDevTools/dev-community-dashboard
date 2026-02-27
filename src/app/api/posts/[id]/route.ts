@@ -6,9 +6,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id: rawId } = await params;
-  const id = parseInt(rawId);
+  const id = Number.parseInt(rawId);
 
-  if (isNaN(id)) {
+  if (Number.isNaN(id)) {
     return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
   }
 
@@ -43,8 +43,10 @@ export async function GET(
     );
   }
 
+  // Flatten article fields with recent_posts so the Dashboard's PostDetails
+  // type (which expects top-level fields + recent_posts) is satisfied.
   return NextResponse.json({
-    article,
-    recentPosts,
+    ...article,
+    recent_posts: recentPosts ?? [],
   });
 }

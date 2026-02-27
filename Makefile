@@ -24,13 +24,13 @@ security:  ## Run package security audit
 	pnpm audit
 
 secret-scan:  ## Run secret scanner using TruffleHog in Docker
-	docker run --rm -v "$$PWD:/pwd" trufflesecurity/trufflehog:latest git file:///pwd --fail
+	docker run --rm -v "$$PWD:/pwd" trufflesecurity/trufflehog:3.93.4 git file:///pwd --fail
 
 actionlint:  ## Run Actionlint in Docker
-	docker run --rm -v "$$PWD:/repo" --workdir /repo rhysd/actionlint:latest -color
+	docker run --rm -v "$$PWD:/repo" --workdir /repo rhysd/actionlint:1.7.11 -color
 
 hadolint:  ## Run Hadolint in Docker
-	docker run --rm -i hadolint/hadolint < Dockerfile
+	docker run --rm -i hadolint/hadolint:v2.14.0 < Dockerfile
 
 ai-checks:  ## Single command: format → lint → security → secret-scan → actionlint → test
 	@set -e; \
