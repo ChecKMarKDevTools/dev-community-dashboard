@@ -13,7 +13,7 @@ export default defineConfig({
     },
     coverage: {
       provider: "v8",
-      reporter: ["text", "json", "html"],
+      reporter: ["text", "json", "json-summary", "lcov", "html"],
       thresholds: {
         statements: 80,
         branches: 80,
