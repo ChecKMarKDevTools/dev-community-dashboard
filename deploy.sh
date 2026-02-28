@@ -190,7 +190,7 @@ gcloud run deploy "$SERVICE_NAME" \
   --allow-unauthenticated \
   --port "$PORT" \
   --labels "env=$ENVIRONMENT" \
-  --set-env-vars "NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL,ALLOWED_ORIGINS=$ALLOWED_ORIGINS" \
+  --set-env-vars "^|^NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL|ALLOWED_ORIGINS=$ALLOWED_ORIGINS" \
   --set-secrets "SUPABASE_SECRET_KEY=supabase-secret-key:latest,CRON_SECRET=cron-secret:latest"
 
 # ── Post-deploy: update CORS with the actual Cloud Run URL ────────────────────
@@ -208,7 +208,7 @@ if [[ -z "$EXISTING_URL" || "$DEPLOYED_URL" != "$EXISTING_URL" ]]; then
   gcloud run services update "$SERVICE_NAME" \
     --region "$REGION" \
     --project "$PROJECT_ID" \
-    --update-env-vars "ALLOWED_ORIGINS=$ALLOWED_ORIGINS"
+    --update-env-vars "^|^ALLOWED_ORIGINS=$ALLOWED_ORIGINS"
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
