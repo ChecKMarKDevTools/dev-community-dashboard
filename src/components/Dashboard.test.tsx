@@ -32,14 +32,14 @@ const mockPosts = [
 
 const mockPostDetails = {
   ...mockPosts[0],
-  url: "https://dev.to/testauthor/post-1",
+  dev_url: "https://dev.to/testauthor/post-1",
   score_breakdown: { heat: 7.5, risk: 2, support: 0 },
   recent_posts: [
     {
       id: 3,
       title: "Previous post",
       canonical_url: "https://dev.to/test/post-3",
-      url: "https://dev.to/testauthor/post-3",
+      dev_url: "https://dev.to/testauthor/post-3",
       score: 10,
       attention_level: "NORMAL",
       published_at: "2023-10-20T10:00:00Z",
@@ -192,6 +192,104 @@ describe("Dashboard Component", () => {
       expect(
         screen.getByText("No posts found. Waiting for data sync."),
       ).toBeInTheDocument();
+    });
+  });
+
+  it("sorts posts by attention priority: NEEDS_RESPONSE > BOOST > NEEDS_REVIEW > LOW_QUALITY > NORMAL", async () => {
+    const mixedPosts = [
+      {
+        ...mockPosts[1],
+        id: 10,
+        title: "Normal post",
+        attention_level: "NORMAL",
+        score: 100,
+      },
+      {
+        ...mockPosts[0],
+        id: 11,
+        title: "Needs review",
+        attention_level: "NEEDS_REVIEW",
+        score: 50,
+      },
+      {
+        ...mockPosts[0],
+        id: 12,
+        title: "Needs response",
+        attention_level: "NEEDS_RESPONSE",
+        score: 10,
+      },
+      {
+        ...mockPosts[0],
+        id: 13,
+        title: "Boost post",
+        attention_level: "BOOST_VISIBILITY",
+        score: 30,
+      },
+      {
+        ...mockPosts[0],
+        id: 14,
+        title: "Low quality",
+        attention_level: "POSSIBLY_LOW_QUALITY",
+        score: 5,
+      },
+    ];
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => mixedPosts });
+    render(<Dashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Needs response")).toBeInTheDocument();
+    });
+
+    const titles = screen
+      .getAllByRole("heading", { level: 3 })
+      .map((h) => h.textContent);
+    expect(titles).toEqual([
+      "Needs response",
+      "Boost post",
+      "Needs review",
+      "Low quality",
+      "Normal post",
+    ]);
+  });
+
+  it("displays computed word count and age from explanations and published_at", async () => {
+    const threeHoursAgo = new Date(
+      Date.now() - 3 * 60 * 60 * 1000,
+    ).toISOString();
+    const detailWithMetrics = {
+      ...mockPosts[0],
+      published_at: threeHoursAgo,
+      explanations: ["Word Count: 1200", "Heat Score: 5.00"],
+      dev_url: "https://dev.to/testauthor/post-1",
+      score_breakdown: {},
+      recent_posts: [],
+    };
+    globalThis.fetch = vi.fn().mockImplementation((url) => {
+      if (url === "/api/posts")
+        return Promise.resolve({ ok: true, json: async () => mockPosts });
+      if (url === "/api/posts/1")
+        return Promise.resolve({
+          ok: true,
+          json: async () => detailWithMetrics,
+        });
+      return Promise.reject(new Error("Not found"));
+    });
+
+    render(<Dashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Needs review post")).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByText("Needs review post").closest("div.border")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("1200 Words")).toBeInTheDocument();
+      expect(screen.getByText("3 Hours Old")).toBeInTheDocument();
     });
   });
 

@@ -46,15 +46,13 @@ type RecentPost = {
   id: number;
   title: string;
   canonical_url: string;
-  url: string;
+  dev_url: string;
   published_at: string;
   score: number;
   attention_level: AttentionCategory;
 };
 type PostDetails = Post & {
-  word_count?: number;
-  age_hours?: number;
-  url: string;
+  dev_url: string;
   score_breakdown?: Record<string, number>;
   recent_posts?: RecentPost[];
 };
@@ -93,6 +91,41 @@ function getScoreBarClass(value: number): string {
   if (value > 20) return "bg-danger-500";
   if (value > 10) return "bg-warning-500";
   return "bg-brand-500";
+}
+
+/** Extract word count from explanations array (e.g., "Word Count: 1000") */
+function extractWordCount(explanations?: string[]): number {
+  if (!explanations) return 0;
+  const match = explanations
+    .find((e) => e.startsWith("Word Count:"))
+    ?.match(/\d+/);
+  return match ? Number(match[0]) : 0;
+}
+
+/** Compute age in hours from published_at timestamp */
+function computeAgeHours(published_at: string): number {
+  const ageMs = Date.now() - new Date(published_at).getTime();
+  return Math.round(ageMs / (1000 * 60 * 60));
+}
+
+/** Priority order for attention levels in the queue list */
+const ATTENTION_PRIORITY: Record<string, number> = {
+  NEEDS_RESPONSE: 0,
+  BOOST_VISIBILITY: 1,
+  NEEDS_REVIEW: 2,
+  POSSIBLY_LOW_QUALITY: 3,
+  NORMAL: 4,
+};
+
+/** Sort posts by attention level priority, then by score descending within each group */
+function sortByAttentionPriority(posts: Post[]): Post[] {
+  return posts.toSorted((a, b) => {
+    const priorityDiff =
+      (ATTENTION_PRIORITY[a.attention_level] ?? 4) -
+      (ATTENTION_PRIORITY[b.attention_level] ?? 4);
+    if (priorityDiff !== 0) return priorityDiff;
+    return b.score - a.score;
+  });
 }
 
 type DetailPanelProps = Readonly<{
@@ -152,7 +185,7 @@ function DetailPanel({
           <div>
             <h2 className="text-brand-900 text-2xl leading-tight font-bold md:text-3xl">
               <a
-                href={postDetails.url || postDetails.canonical_url}
+                href={postDetails.dev_url || postDetails.canonical_url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-brand-600 transition-colors hover:underline"
@@ -191,12 +224,12 @@ function DetailPanel({
           </div>
           <div className="text-brand-700 flex items-center gap-2">
             <span className="font-semibold">
-              {postDetails.word_count || 0} Words
+              {extractWordCount(postDetails.explanations)} Words
             </span>
           </div>
           <div className="text-brand-700 flex items-center gap-2">
             <span className="font-semibold">
-              {postDetails.age_hours || 0} Hours Old
+              {computeAgeHours(postDetails.published_at)} Hours Old
             </span>
           </div>
         </div>
@@ -285,7 +318,7 @@ function DetailPanel({
                 <CardHeader className="p-4 pb-2">
                   <CardTitle className="text-brand-800 line-clamp-2 text-base">
                     <a
-                      href={rp.url || rp.canonical_url}
+                      href={rp.dev_url || rp.canonical_url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="hover:underline"
@@ -334,7 +367,7 @@ export function Dashboard() {
         return res.json();
       })
       .then((data: Post[]) => {
-        setPosts(data);
+        setPosts(sortByAttentionPriority(data));
         setLoading(false);
       })
       .catch((err) => {
