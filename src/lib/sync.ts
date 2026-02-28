@@ -347,6 +347,7 @@ async function deepScoreAndPersist(
   const {
     article,
     username,
+    word_count: fallback_word_count,
     age_hours,
     author_post_frequency,
     preliminary_score,
@@ -354,10 +355,16 @@ async function deepScoreAndPersist(
     postsByAuthor24h,
   } = input;
 
-  const fullArticle = await ForemClient.getArticle(article.id);
-  const word_count = countWords(
-    fullArticle.body_html || fullArticle.body_markdown || "",
-  );
+  let word_count = fallback_word_count;
+  try {
+    const fullArticle = await ForemClient.getArticle(article.id);
+    word_count = countWords(
+      fullArticle.body_markdown || fullArticle.body_html || "",
+    );
+  } catch {
+    // Fallback: use the estimate passed from lightScoreAndRank if article fetch fails
+    word_count = fallback_word_count;
+  }
 
   const comments = await ForemClient.getComments(article.id);
 

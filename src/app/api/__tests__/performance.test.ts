@@ -33,7 +33,8 @@ vi.mock("@/lib/supabase", () => ({
   },
 }));
 
-// Always run performance tests
+// Performance tests are permanently enabled as per user requirement
+// Timing assertions (50ms/20ms) are validated across all CI runs
 const TIMING_BUDGETS_ENABLED = true;
 
 // ---------------------------------------------------------------------------

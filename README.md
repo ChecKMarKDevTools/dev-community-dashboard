@@ -218,7 +218,7 @@ gcloud run deploy forem-community-dashboard \
   --set-env-vars NEXT_PUBLIC_SUPABASE_URL=...,FOREM_API_KEY=...
 ```
 
-Once deployed, set `APP_URL` as a **GitHub repository variable** (not a secret — it is a public URL) and `CRON_SECRET` as a **GitHub secret** so the cron workflow (`.github/workflows/cron.yml`) can reach the live endpoint. Uncomment the `schedule` trigger in that file to enable the 2-hour cadence.
+Once deployed, set `APP_URL` as a **GitHub repository variable** (not a secret — it is a public URL) and `CRON_SECRET` as a **GitHub secret** so the cron workflow (`.github/workflows/cron.yml`) can reach the live endpoint. By default, this workflow uses a `schedule` trigger to run every 2 hours; to change or disable this cadence, edit or remove the `schedule` block in that file.
 
 ---
 
