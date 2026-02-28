@@ -10,6 +10,8 @@ import {
   extractWordCount,
   parseScoreBreakdown,
   getScoreNarrative,
+  getCategoryDisplayName,
+  formatSignalDisplay,
   getBehaviorDescription,
   getWhatsHappening,
   getSignalName,
@@ -41,7 +43,7 @@ describe("getCategoryLabel", () => {
     expect(getCategoryLabel("NORMAL")).toBe("Routine Discussion");
     expect(getCategoryLabel("BOOST_VISIBILITY")).toBe("Active Conversation");
     expect(getCategoryLabel("NEEDS_RESPONSE")).toBe("Community Waiting");
-    expect(getCategoryLabel("NEEDS_REVIEW")).toBe("Escalating Discussion");
+    expect(getCategoryLabel("NEEDS_REVIEW")).toBe("High Activity");
     expect(getCategoryLabel("POSSIBLY_LOW_QUALITY")).toBe(
       "Potential Rule Issue",
     );
@@ -211,13 +213,13 @@ describe("getScoreNarrative", () => {
   describe("heat narratives", () => {
     it("returns high narrative for heat >= 10", () => {
       expect(getScoreNarrative("heat", 10)).toBe(
-        "Very active discussion with rapid comments and mixed sentiment.",
+        "Reply rate is higher than typical; reactions are mixed.",
       );
     });
 
     it("returns moderate narrative for heat >= 5", () => {
       expect(getScoreNarrative("heat", 5)).toBe(
-        "Elevated activity — comments are arriving faster than typical.",
+        "Replies are arriving faster than usual.",
       );
     });
 
@@ -248,7 +250,9 @@ describe("getScoreNarrative", () => {
     });
 
     it("returns clean narrative for risk 0", () => {
-      expect(getScoreNarrative("risk", 0)).toBe("No risk indicators found.");
+      expect(getScoreNarrative("risk", 0)).toBe(
+        "No rule-risk patterns detected.",
+      );
     });
   });
 
@@ -267,13 +271,25 @@ describe("getScoreNarrative", () => {
 
     it("returns low narrative for support < 2", () => {
       expect(getScoreNarrative("support", 0)).toBe(
-        "Author seems established with normal engagement.",
+        "Replies are frequent but rarely build on each other.",
       );
     });
   });
 
   it("returns empty string for unknown categories", () => {
     expect(getScoreNarrative("unknown", 50)).toBe("");
+  });
+});
+
+describe("getCategoryDisplayName", () => {
+  it("returns display names for known categories", () => {
+    expect(getCategoryDisplayName("heat")).toBe("Activity Level");
+    expect(getCategoryDisplayName("risk")).toBe("Policy Risk");
+    expect(getCategoryDisplayName("support")).toBe("Constructiveness");
+  });
+
+  it("returns the raw key for unknown categories", () => {
+    expect(getCategoryDisplayName("other")).toBe("other");
   });
 });
 
@@ -343,7 +359,7 @@ describe("getBehaviorDescription", () => {
         ...basePost,
         attention_level: "NEEDS_REVIEW",
       }),
-    ).toBe("Escalating Discussion");
+    ).toBe("High Activity");
   });
 
   it("does not trigger spike for attention delta < 5", () => {
@@ -371,7 +387,7 @@ describe("getWhatsHappening", () => {
 
   it("returns accelerating observation for heat >= 10", () => {
     expect(getWhatsHappening(["Heat Score: 12.00"])).toBe(
-      "Activity is accelerating and drawing attention.",
+      "Replies are arriving faster than typical.",
     );
   });
 
@@ -414,6 +430,30 @@ describe("getSignalName", () => {
   it("returns empty string when no colon is present", () => {
     expect(getSignalName("no colon here")).toBe("");
     expect(getSignalName("")).toBe("");
+  });
+});
+
+describe("formatSignalDisplay", () => {
+  it("renames known signal prefixes", () => {
+    expect(formatSignalDisplay("Unique Commenters: 18")).toBe(
+      "Participants: 18",
+    );
+    expect(formatSignalDisplay("Effort: 30.01")).toBe("Effort Score: 30");
+    expect(formatSignalDisplay("Attention Delta: 23.62")).toBe(
+      "Attention Shift: 24",
+    );
+  });
+
+  it("rounds numeric values to integers", () => {
+    expect(formatSignalDisplay("Word Count: 800.5")).toBe("Word Count: 801");
+  });
+
+  it("preserves unknown signal names", () => {
+    expect(formatSignalDisplay("Word Count: 800")).toBe("Word Count: 800");
+  });
+
+  it("returns input unchanged when no colon is present", () => {
+    expect(formatSignalDisplay("no colon")).toBe("no colon");
   });
 });
 

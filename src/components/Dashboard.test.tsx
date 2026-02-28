@@ -97,7 +97,7 @@ describe("Dashboard Component", () => {
     fireEvent.click(postCard);
 
     await waitFor(() => {
-      expect(screen.getByText("Why This Surfaced")).toBeInTheDocument();
+      expect(screen.getByText("Discussion State")).toBeInTheDocument();
     });
 
     // @testauthor now appears in both the list card and the detail panel
@@ -293,8 +293,8 @@ describe("Dashboard Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("~1200 Words")).toBeInTheDocument();
-      expect(screen.getByText("3 Hours Old")).toBeInTheDocument();
+      expect(screen.getByText(/~1200 words/)).toBeInTheDocument();
+      expect(screen.getByText(/3h old/)).toBeInTheDocument();
     });
   });
 
@@ -350,14 +350,12 @@ describe("Dashboard Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Why This Surfaced")).toBeInTheDocument();
+      expect(screen.getByText("Discussion State")).toBeInTheDocument();
     });
 
     // Heat 7.5 >= 5 triggers elevated narrative
     expect(
-      screen.getByText(
-        "Elevated activity — comments are arriving faster than typical.",
-      ),
+      screen.getByText("Replies are arriving faster than usual."),
     ).toBeInTheDocument();
     // Risk 2 >= 1 triggers minor flags narrative
     expect(
@@ -365,7 +363,7 @@ describe("Dashboard Component", () => {
     ).toBeInTheDocument();
     // Support 0 triggers established narrative
     expect(
-      screen.getByText("Author seems established with normal engagement."),
+      screen.getByText("Replies are frequent but rarely build on each other."),
     ).toBeInTheDocument();
   });
 
@@ -411,7 +409,7 @@ describe("Dashboard Component", () => {
     // High heat narrative
     expect(
       screen.getByText(
-        "Very active discussion with rapid comments and mixed sentiment.",
+        "Reply rate is higher than typical; reactions are mixed.",
       ),
     ).toBeInTheDocument();
     // High risk narrative
@@ -428,7 +426,7 @@ describe("Dashboard Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders Conversation Pattern Signals with tooltips, excluding scores shown in Why This Surfaced", async () => {
+  it("renders Conversation Signals with tooltips, excluding scores shown in Discussion State", async () => {
     const detailWithSignals = {
       ...mockPosts[0],
       explanations: [
@@ -464,9 +462,7 @@ describe("Dashboard Component", () => {
     );
 
     await waitFor(() => {
-      expect(
-        screen.getByText("Conversation Pattern Signals"),
-      ).toBeInTheDocument();
+      expect(screen.getByText("Conversation Signals")).toBeInTheDocument();
     });
 
     // Activity signals card should show only non-score signals (4 items)
@@ -486,12 +482,12 @@ describe("Dashboard Component", () => {
       "Measures how quickly people started paying attention compared to normal; spikes mean the topic suddenly caught eyes.",
     );
 
-    // Heat/Risk/Support should NOT appear in the signals card (they're in Why This Surfaced)
+    // Heat/Risk/Support should NOT appear in the signals card (they're in Discussion State)
     expect(tooltipTexts).not.toContain(
       "Emotional intensity of replies; disagreement and passion raise it, calm discussion lowers it.",
     );
 
-    // Qualitative labels should appear in Why This Surfaced
+    // Qualitative labels should appear in Discussion State
     const lowLabels = screen.getAllByText("Low");
     expect(lowLabels.length).toBeGreaterThanOrEqual(2);
   });
@@ -513,7 +509,7 @@ describe("Dashboard Component", () => {
     consoleErrorSpy.mockRestore();
   });
 
-  it("shows What's Happening card in detail panel", async () => {
+  it("shows Thread Momentum card in detail panel", async () => {
     const detailWithHighRisk = {
       ...mockPosts[0],
       explanations: [
@@ -545,7 +541,7 @@ describe("Dashboard Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("What's Happening")).toBeInTheDocument();
+      expect(screen.getByText("Thread Momentum")).toBeInTheDocument();
     });
 
     // Risk 7 >= 6 triggers problem-behavior observation
@@ -586,7 +582,7 @@ describe("Dashboard Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("What's Happening")).toBeInTheDocument();
+      expect(screen.getByText("Thread Momentum")).toBeInTheDocument();
     });
 
     expect(
@@ -594,7 +590,7 @@ describe("Dashboard Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders Conversation Pattern Signals before Why This Surfaced in DOM order", async () => {
+  it("renders Conversation Signals before Discussion State in DOM order", async () => {
     globalThis.fetch = vi.fn().mockImplementation((url) => {
       if (url === "/api/posts")
         return Promise.resolve({ ok: true, json: async () => mockPosts });
@@ -613,15 +609,13 @@ describe("Dashboard Component", () => {
     );
 
     await waitFor(() => {
-      expect(
-        screen.getByText("Conversation Pattern Signals"),
-      ).toBeInTheDocument();
+      expect(screen.getByText("Conversation Signals")).toBeInTheDocument();
     });
 
-    const signals = screen.getByText("Conversation Pattern Signals");
-    const surfaced = screen.getByText("Why This Surfaced");
+    const signals = screen.getByText("Conversation Signals");
+    const surfaced = screen.getByText("Discussion State");
 
-    // Conversation Pattern Signals should appear before Why This Surfaced in DOM
+    // Conversation Signals should appear before Discussion State in DOM
     expect(
       signals.compareDocumentPosition(surfaced) &
         Node.DOCUMENT_POSITION_FOLLOWING,

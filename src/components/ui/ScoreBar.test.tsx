@@ -3,7 +3,7 @@ import { ScoreBar } from "./ScoreBar";
 
 describe("ScoreBar", () => {
   const defaultProps = {
-    label: "heat",
+    label: "Activity Level",
     sublabel: "High",
     description: "Very active discussion.",
     value: 15,
@@ -13,7 +13,7 @@ describe("ScoreBar", () => {
 
   it("renders label, sublabel, and description", () => {
     render(<ScoreBar {...defaultProps} />);
-    expect(screen.getByText("heat")).toBeInTheDocument();
+    expect(screen.getByText("Activity Level")).toBeInTheDocument();
     expect(screen.getByText("High")).toBeInTheDocument();
     expect(screen.getByText("Very active discussion.")).toBeInTheDocument();
   });
@@ -59,9 +59,9 @@ describe("ScoreBar", () => {
     expect(container.firstChild).toHaveClass("mt-4");
   });
 
-  it("capitalizes the label via CSS class", () => {
+  it("renders the label text as provided", () => {
     render(<ScoreBar {...defaultProps} />);
-    const labelEl = screen.getByText("heat");
-    expect(labelEl.className).toContain("capitalize");
+    const labelEl = screen.getByText("Activity Level");
+    expect(labelEl.tagName).toBe("SPAN");
   });
 });

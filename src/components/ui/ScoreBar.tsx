@@ -24,7 +24,7 @@ export function ScoreBar({
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
       <div className="text-brand-700 flex justify-between text-sm font-medium">
-        <span className="capitalize">{label}</span>
+        <span>{label}</span>
         <span>{sublabel}</span>
       </div>
       <div className="bg-brand-100 h-2 w-full overflow-hidden rounded-full">

@@ -10,23 +10,17 @@ import {
 import { Badge } from "@/components/ui/Badge";
 import { Spinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { StatPill } from "@/components/ui/StatPill";
 import { SignalItem } from "@/components/ui/SignalItem";
 import { ScoreBar } from "@/components/ui/ScoreBar";
 import { PostMeta } from "@/components/ui/PostMeta";
 import { SectionCard } from "@/components/ui/SectionCard";
 import { QueueCard } from "@/components/ui/QueueCard";
-import {
-  AlertCircle,
-  ChevronRight,
-  ExternalLink,
-  MessageSquare,
-  Heart,
-} from "lucide-react";
+import { AlertCircle, ChevronRight, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   getAttentionVariant,
   getCategoryLabel,
+  getCategoryDisplayName,
   getRecentPostBadgeVariant,
   getScoreQualitativeLabel,
   getScoreBarClass,
@@ -36,6 +30,7 @@ import {
   getBehaviorDescription,
   getWhatsHappening,
   getSignalName,
+  formatSignalDisplay,
   computeAgeHours,
   sortByAttentionPriority,
   SIGNAL_TOOLTIPS,
@@ -57,14 +52,7 @@ function DetailPanel({
   onBack,
 }: DetailPanelProps) {
   if (!selectedPostId) {
-    return (
-      <EmptyState
-        icon={MessageSquare}
-        title="Select a post to view details"
-        description="The conversation analysis will appear here."
-        variant="prominent"
-      />
-    );
+    return null;
   }
 
   if (detailsLoading) {
@@ -91,8 +79,8 @@ function DetailPanel({
       </div>
 
       <div className="border-brand-100 rounded-2xl border bg-white p-6 shadow-sm md:p-8">
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-          <div>
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
             <h2 className="text-brand-900 text-2xl leading-tight font-bold md:text-3xl">
               <a
                 href={postDetails.dev_url || postDetails.canonical_url}
@@ -112,36 +100,27 @@ function DetailPanel({
           </div>
           <Badge
             variant={getAttentionVariant(postDetails.attention_level)}
-            className="px-3 py-1 text-sm"
+            className="shrink-0 px-3 py-1 text-sm"
           >
             {getCategoryLabel(postDetails.attention_level)}
           </Badge>
         </div>
 
-        <div className="border-brand-100 mb-8 flex items-center gap-6 border-y py-4">
-          <StatPill icon={Heart} iconClassName="text-danger-500">
-            {postDetails.reactions}
-          </StatPill>
-          <StatPill icon={MessageSquare} iconClassName="text-brand-500">
-            {postDetails.comments} Comments
-          </StatPill>
-          <StatPill>
-            ~{extractWordCount(postDetails.explanations)} Words
-          </StatPill>
-          <StatPill>
-            {computeAgeHours(postDetails.published_at)} Hours Old
-          </StatPill>
-        </div>
+        <p className="text-brand-500 border-brand-100 mb-8 border-y py-4 text-sm">
+          {postDetails.reactions} reactions &middot; {postDetails.comments}{" "}
+          comments &middot; ~{extractWordCount(postDetails.explanations)} words
+          &middot; {computeAgeHours(postDetails.published_at)}h old
+        </p>
 
         <div className="grid gap-6 md:grid-cols-2">
-          {/* Conversation Pattern Signals — LEFT/first */}
+          {/* Conversation Signals — LEFT/first */}
           <SectionCard>
             <CardHeader className="pb-3">
               <CardTitle className="text-brand-800 text-lg">
-                Conversation Pattern Signals
+                Conversation Signals
               </CardTitle>
               <CardDescription>
-                Behavioral signals from the discussion
+                Signals computed from the conversation
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -157,7 +136,7 @@ function DetailPanel({
                         key={exp}
                         tooltip={SIGNAL_TOOLTIPS[getSignalName(exp)]}
                       >
-                        {exp}
+                        {formatSignalDisplay(exp)}
                       </SignalItem>
                     ))}
                 </ul>
@@ -170,14 +149,14 @@ function DetailPanel({
             </CardContent>
           </SectionCard>
 
-          {/* Why This Surfaced — RIGHT/second */}
+          {/* Discussion State — RIGHT/second */}
           <SectionCard variant="muted">
             <CardHeader className="pb-3">
               <CardTitle className="text-brand-800 text-lg">
-                Why This Surfaced
+                Discussion State
               </CardTitle>
               <CardDescription>
-                Factors that brought this conversation to your attention
+                Observed patterns in the current window
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -186,7 +165,7 @@ function DetailPanel({
               ).map(([category, value]) => (
                 <ScoreBar
                   key={category}
-                  label={category}
+                  label={getCategoryDisplayName(category)}
                   sublabel={getScoreQualitativeLabel(category, value)}
                   description={getScoreNarrative(category, value)}
                   value={value}
@@ -198,11 +177,11 @@ function DetailPanel({
           </SectionCard>
         </div>
 
-        {/* What's Happening — full-width card below the grid */}
+        {/* Thread Momentum — full-width card below the grid */}
         <SectionCard variant="muted" className="mt-6">
           <CardHeader className="pb-3">
             <CardTitle className="text-brand-800 text-lg">
-              What&apos;s Happening
+              Thread Momentum
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -309,8 +288,6 @@ export function Dashboard() {
     );
   }
 
-  const showRightPanel = selectedPostId !== null || window.innerWidth >= 768;
-
   return (
     <div className="bg-brand-50 flex h-screen overflow-hidden">
       {/* Left panel: Post List */}
@@ -376,15 +353,9 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* Right panel: Post Details */}
-      {showRightPanel && (
-        <div
-          className={cn(
-            "bg-brand-50/50 relative flex-1 overflow-y-auto p-6 md:p-8",
-            selectedPostId === null &&
-              "hidden items-center justify-center md:flex",
-          )}
-        >
+      {/* Right panel: Post Details — only rendered when a post is selected */}
+      {selectedPostId !== null && (
+        <div className="bg-brand-50/50 relative flex-1 overflow-y-auto p-6 md:p-8">
           <DetailPanel
             selectedPostId={selectedPostId}
             detailsLoading={detailsLoading}

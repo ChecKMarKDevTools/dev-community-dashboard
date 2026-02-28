@@ -15,7 +15,7 @@ export const ATTENTION_META: Record<
   NORMAL: { variant: "neutral", label: "Routine Discussion" },
   BOOST_VISIBILITY: { variant: "info", label: "Active Conversation" },
   NEEDS_RESPONSE: { variant: "teal", label: "Community Waiting" },
-  NEEDS_REVIEW: { variant: "attention", label: "Escalating Discussion" },
+  NEEDS_REVIEW: { variant: "attention", label: "High Activity" },
   POSSIBLY_LOW_QUALITY: { variant: "critical", label: "Potential Rule Issue" },
 };
 
@@ -118,9 +118,8 @@ export function parseScoreBreakdown(
 
 function getHeatNarrative(value: number): string {
   if (value >= 10)
-    return "Very active discussion with rapid comments and mixed sentiment.";
-  if (value >= 5)
-    return "Elevated activity — comments are arriving faster than typical.";
+    return "Reply rate is higher than typical; reactions are mixed.";
+  if (value >= 5) return "Replies are arriving faster than usual.";
   return "Normal conversation pace with steady engagement.";
 }
 
@@ -130,7 +129,7 @@ function getRiskNarrative(value: number): string {
   if (value >= 4)
     return "Some risk flags raised — short content or promotional language.";
   if (value >= 1) return "Minor flags present but likely not concerning.";
-  return "No risk indicators found.";
+  return "No rule-risk patterns detected.";
 }
 
 function getSupportNarrative(value: number): string {
@@ -138,7 +137,19 @@ function getSupportNarrative(value: number): string {
     return "Author appears to need community help — new user with little engagement.";
   if (value >= 2)
     return "Some signs the author could use encouragement or a response.";
-  return "Author seems established with normal engagement.";
+  return "Replies are frequent but rarely build on each other.";
+}
+
+/** Human-readable display names for score categories. */
+const CATEGORY_DISPLAY_NAMES: Record<string, string> = {
+  heat: "Activity Level",
+  risk: "Policy Risk",
+  support: "Constructiveness",
+};
+
+/** Return the display name for a score category key. */
+export function getCategoryDisplayName(category: string): string {
+  return CATEGORY_DISPLAY_NAMES[category] ?? category;
 }
 
 /** Plain-English explanation for each score type so moderators understand what they mean. */
@@ -184,7 +195,7 @@ export function getWhatsHappening(explanations?: string[]): string {
 
   if (risk >= 6) return "Patterns match known problem behaviors.";
   if (risk >= 4) return "Signals suggest the discussion may drift off-topic.";
-  if (heat >= 10) return "Activity is accelerating and drawing attention.";
+  if (heat >= 10) return "Replies are arriving faster than typical.";
   if (heat >= 5)
     return "Participants are reacting to each other more than the topic.";
   if (support >= 3) return "People are waiting for guidance or clarification.";
@@ -209,11 +220,38 @@ export const SIGNAL_TOOLTIPS: Record<string, string> = {
     "Signs of constructive interaction like helping, clarifying, or agreeing; higher means collaborative tone.",
 };
 
+/** Display-name overrides for signal prefixes shown in the Conversation Signals card. */
+const SIGNAL_DISPLAY_NAMES: Record<string, string> = {
+  "Unique Commenters": "Participants",
+  Effort: "Effort Score",
+  "Attention Delta": "Attention Shift",
+};
+
 /** Extract the signal name (text before the colon) from an explanation string. */
 export function getSignalName(explanation: string): string {
   const colonIndex = explanation.indexOf(":");
   if (colonIndex === -1) return "";
   return explanation.slice(0, colonIndex).trim();
+}
+
+/**
+ * Format a raw explanation string for display.
+ * Renames known signal prefixes and rounds numeric values to integers.
+ */
+export function formatSignalDisplay(explanation: string): string {
+  const colonIndex = explanation.indexOf(":");
+  if (colonIndex === -1) return explanation;
+
+  const rawName = explanation.slice(0, colonIndex).trim();
+  const rawValue = explanation.slice(colonIndex + 1).trim();
+  const displayName = SIGNAL_DISPLAY_NAMES[rawName] ?? rawName;
+
+  const parsed = Number.parseFloat(rawValue);
+  const displayValue = Number.isNaN(parsed)
+    ? rawValue
+    : String(Math.round(parsed));
+
+  return `${displayName}: ${displayValue}`;
 }
 
 /** Signals already shown in the Score Breakdown card — filter them from Activity Signals. */
