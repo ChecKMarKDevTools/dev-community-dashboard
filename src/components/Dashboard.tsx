@@ -180,6 +180,13 @@ function getSignalName(explanation: string): string {
   return explanation.slice(0, colonIndex).trim();
 }
 
+/** Signals already shown in the Score Breakdown card — filter them from Activity Signals. */
+const SCORE_BREAKDOWN_SIGNALS = new Set([
+  "Heat Score",
+  "Risk Score",
+  "Support Score",
+]);
+
 /** Compute age in hours from published_at timestamp */
 function computeAgeHours(published_at: string): number {
   const ageMs = Date.now() - new Date(published_at).getTime();
@@ -365,33 +372,37 @@ function DetailPanel({
               {postDetails.explanations &&
               postDetails.explanations.length > 0 ? (
                 <ul className="space-y-3">
-                  {postDetails.explanations.map((exp: string) => {
-                    const signalName = getSignalName(exp);
-                    const tooltip = SIGNAL_TOOLTIPS[signalName];
-                    return (
-                      <li
-                        key={exp}
-                        className="text-brand-700 bg-brand-50 border-brand-100 flex items-center gap-3 rounded-lg border p-3 text-sm"
-                      >
-                        {tooltip ? (
-                          <span className="group relative shrink-0 cursor-help">
-                            <HelpCircle className="text-brand-400 group-hover:text-brand-600 h-4 w-4" />
-                            <span
-                              role="tooltip"
-                              className="bg-brand-900 pointer-events-none absolute top-1/2 left-6 z-10 w-56 -translate-y-1/2 rounded-lg px-3 py-2 text-xs leading-relaxed text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100"
-                            >
-                              {tooltip}
+                  {postDetails.explanations
+                    .filter(
+                      (exp) => !SCORE_BREAKDOWN_SIGNALS.has(getSignalName(exp)),
+                    )
+                    .map((exp: string) => {
+                      const signalName = getSignalName(exp);
+                      const tooltip = SIGNAL_TOOLTIPS[signalName];
+                      return (
+                        <li
+                          key={exp}
+                          className="text-brand-700 bg-brand-50 border-brand-100 flex items-center gap-3 rounded-lg border p-3 text-sm"
+                        >
+                          {tooltip ? (
+                            <span className="group relative shrink-0 cursor-help">
+                              <HelpCircle className="text-brand-400 group-hover:text-brand-600 h-4 w-4" />
+                              <span
+                                role="tooltip"
+                                className="bg-brand-900 pointer-events-none absolute top-1/2 left-6 z-10 w-56 -translate-y-1/2 rounded-lg px-3 py-2 text-xs leading-relaxed text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100"
+                              >
+                                {tooltip}
+                              </span>
                             </span>
+                          ) : (
+                            <span className="w-4 shrink-0" />
+                          )}
+                          <span className="min-w-0 flex-1 leading-snug">
+                            {exp}
                           </span>
-                        ) : (
-                          <span className="w-4 shrink-0" />
-                        )}
-                        <span className="min-w-0 flex-1 leading-snug">
-                          {exp}
-                        </span>
-                      </li>
-                    );
-                  })}
+                        </li>
+                      );
+                    })}
                 </ul>
               ) : (
                 <p className="text-brand-500 text-sm italic">

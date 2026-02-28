@@ -102,7 +102,8 @@ describe("Dashboard Component", () => {
 
     // @testauthor now appears in both the list card and the detail panel
     expect(screen.getAllByText("@testauthor").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText("Heat Score: 7.50")).toBeInTheDocument();
+    // Heat Score is parsed from explanations and rendered in Score Breakdown as "X pts"
+    expect(screen.getByText("7.5 pts")).toBeInTheDocument();
   });
 
   it("displays BOOST_VISIBILITY category correctly", async () => {
@@ -421,12 +422,14 @@ describe("Dashboard Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders Discussion Activity Signals section with tooltip hover text on help icons", async () => {
+  it("renders Discussion Activity Signals with tooltips, excluding scores shown in Score Breakdown", async () => {
     const detailWithSignals = {
       ...mockPosts[0],
       explanations: [
         "Word Count: 800",
         "Unique Commenters: 5",
+        "Effort: 30.01",
+        "Attention Delta: 12.50",
         "Heat Score: 3.00",
         "Risk Score: 0 (freq: 0, promo: 0, engage: -0)",
         "Support Score: 1",
@@ -455,13 +458,12 @@ describe("Dashboard Component", () => {
     );
 
     await waitFor(() => {
-      // Renamed section title
       expect(
         screen.getByText("Discussion Activity Signals"),
       ).toBeInTheDocument();
     });
 
-    // Each known signal should have a tooltip element with descriptive text
+    // Activity signals card should show only non-score signals (4 items)
     const tooltips = screen.getAllByRole("tooltip");
     const tooltipTexts = tooltips.map((el) => el.textContent);
 
@@ -472,14 +474,21 @@ describe("Dashboard Component", () => {
       "How many different people joined; higher numbers suggest community interest rather than one person arguing with themselves.",
     );
     expect(tooltipTexts).toContain(
+      "Rough estimate of how much thinking and replying participants put in; long thoughtful replies raise it, short reactions barely move it.",
+    );
+    expect(tooltipTexts).toContain(
+      "Measures how quickly people started paying attention compared to normal; spikes mean the topic suddenly caught eyes.",
+    );
+
+    // Heat/Risk/Support should NOT appear in the signals card (they're in Score Breakdown)
+    expect(tooltipTexts).not.toContain(
       "Emotional intensity of replies; disagreement and passion raise it, calm discussion lowers it.",
     );
-    expect(tooltipTexts).toContain(
-      "Probability the thread breaks platform rules; zero means nothing looks unsafe, even if people disagree loudly.",
-    );
-    expect(tooltipTexts).toContain(
-      "Signs of constructive interaction like helping, clarifying, or agreeing; higher means collaborative tone.",
-    );
+
+    // But the score values themselves should still appear in Score Breakdown
+    expect(screen.getByText("3 pts")).toBeInTheDocument();
+    expect(screen.getByText("0 pts")).toBeInTheDocument();
+    expect(screen.getByText("1 pts")).toBeInTheDocument();
   });
 
   it("handles api error for posts list", async () => {
