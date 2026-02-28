@@ -12,16 +12,30 @@
 set -euo pipefail
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-SERVICE_NAME="forem-community-dashboard"
 REGION="us-east1"
 PORT="3000"
 # ENVIRONMENT drives Cloud Run labels and Docker image tags.
 # Override via: ENVIRONMENT=staging ./deploy.sh
 ENVIRONMENT="${ENVIRONMENT:-production}"
+# Service name is scoped per environment so staging never overwrites production.
+BASE_SERVICE_NAME="forem-community-dashboard"
+if [[ "$ENVIRONMENT" != "production" ]]; then
+  SERVICE_NAME="${BASE_SERVICE_NAME}-${ENVIRONMENT}"
+else
+  SERVICE_NAME="$BASE_SERVICE_NAME"
+fi
+# Secret names are scoped per environment to prevent cross-env rotation issues.
+SECRET_SUPABASE_KEY="supabase-secret-key-${ENVIRONMENT}"
+SECRET_CRON="cron-secret-${ENVIRONMENT}"
+SECRET_DEV_API_KEY="dev-api-key-${ENVIRONMENT}"
 # The canonical custom domain for this service.  Used as a static CORS origin
 # and for optional Cloud Run domain mapping.  Set CUSTOM_DOMAIN="" to skip.
 CUSTOM_DOMAIN="${CUSTOM_DOMAIN:-dev-signal.checkmarkdevtools.dev}"
-STATIC_CORS_ORIGIN="https://$CUSTOM_DOMAIN"
+if [[ -n "${CUSTOM_DOMAIN:-}" ]]; then
+  STATIC_CORS_ORIGIN="https://$CUSTOM_DOMAIN"
+else
+  STATIC_CORS_ORIGIN=""
+fi
 # This project MUST be active before deploying.
 EXPECTED_PROJECT="checkmarkdevtools"
 SEPARATOR="=================================================="
@@ -127,8 +141,11 @@ grant_secret_access() {
 # ── Provision secrets ─────────────────────────────────────────────────────────
 echo ""
 echo "--- Provisioning secrets in Secret Manager ---"
-upsert_secret "supabase-secret-key" "$SUPABASE_SECRET_KEY"
-upsert_secret "cron-secret" "$CRON_SECRET"
+upsert_secret "$SECRET_SUPABASE_KEY" "$SUPABASE_SECRET_KEY"
+upsert_secret "$SECRET_CRON" "$CRON_SECRET"
+if [[ -n "${DEV_API_KEY:-}" ]]; then
+  upsert_secret "$SECRET_DEV_API_KEY" "$DEV_API_KEY"
+fi
 
 # ── Artifact Registry ─────────────────────────────────────────────────────────
 if ! gcloud artifacts repositories describe "$SERVICE_NAME" \
@@ -152,6 +169,17 @@ echo "Image: $IMAGE_URI"
 gcloud builds submit --tag "$IMAGE_URI" . --project "$PROJECT_ID"
 
 # ── Resolve CORS origins ──────────────────────────────────────────────────────
+# Build comma-separated ALLOWED_ORIGINS, filtering empty strings so a blank
+# STATIC_CORS_ORIGIN (CUSTOM_DOMAIN="") never produces a trailing comma.
+join_origins() {
+  local origins=()
+  for o in "$@"; do
+    [[ -n "$o" ]] && origins+=("$o")
+  done
+  local IFS=","
+  echo "${origins[*]}"
+}
+
 # If the service already exists, include its URL in ALLOWED_ORIGINS so the
 # first-deploy CORS config covers the subdomain and any previous URL.
 EXISTING_URL=$(
@@ -161,11 +189,11 @@ EXISTING_URL=$(
 )
 
 if [[ -n "$EXISTING_URL" ]]; then
-  ALLOWED_ORIGINS="$EXISTING_URL,$STATIC_CORS_ORIGIN"
+  ALLOWED_ORIGINS=$(join_origins "$EXISTING_URL" "$STATIC_CORS_ORIGIN")
 else
   # First deploy: include only the static subdomain; the script will update
   # ALLOWED_ORIGINS with the Cloud Run URL immediately after deploy.
-  ALLOWED_ORIGINS="$STATIC_CORS_ORIGIN"
+  ALLOWED_ORIGINS=$(join_origins "$STATIC_CORS_ORIGIN")
 fi
 
 # ── Service account ───────────────────────────────────────────────────────────
@@ -176,10 +204,19 @@ SA_MEMBER="serviceAccount:$DEFAULT_SA"
 
 echo ""
 echo "--- Granting Secret Manager access to $DEFAULT_SA ---"
-grant_secret_access "supabase-secret-key" "$SA_MEMBER"
-grant_secret_access "cron-secret" "$SA_MEMBER"
+grant_secret_access "$SECRET_SUPABASE_KEY" "$SA_MEMBER"
+grant_secret_access "$SECRET_CRON" "$SA_MEMBER"
+if [[ -n "${DEV_API_KEY:-}" ]]; then
+  grant_secret_access "$SECRET_DEV_API_KEY" "$SA_MEMBER"
+fi
 
 # ── Deploy to Cloud Run ───────────────────────────────────────────────────────
+# Build secret mount refs; include DEV_API_KEY only when the value is present.
+SECRET_REFS="SUPABASE_SECRET_KEY=$SECRET_SUPABASE_KEY:latest,CRON_SECRET=$SECRET_CRON:latest"
+if [[ -n "${DEV_API_KEY:-}" ]]; then
+  SECRET_REFS="$SECRET_REFS,DEV_API_KEY=$SECRET_DEV_API_KEY:latest"
+fi
+
 echo ""
 echo "--- Deploying $SERVICE_NAME to Cloud Run ---"
 echo "Environment label: env=$ENVIRONMENT"
@@ -193,7 +230,7 @@ gcloud run deploy "$SERVICE_NAME" \
   --port "$PORT" \
   --labels "env=$ENVIRONMENT" \
   --set-env-vars "^|^NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL|ALLOWED_ORIGINS=$ALLOWED_ORIGINS" \
-  --set-secrets "SUPABASE_SECRET_KEY=supabase-secret-key:latest,CRON_SECRET=cron-secret:latest"
+  --set-secrets "$SECRET_REFS"
 
 # ── Post-deploy: update CORS with the actual Cloud Run URL ────────────────────
 # On first deploy the URL wasn't known in advance, so we update env vars now.
@@ -204,7 +241,7 @@ DEPLOYED_URL=$(
 )
 
 if [[ -z "$EXISTING_URL" || "$DEPLOYED_URL" != "$EXISTING_URL" ]]; then
-  ALLOWED_ORIGINS="$DEPLOYED_URL,$STATIC_CORS_ORIGIN"
+  ALLOWED_ORIGINS=$(join_origins "$DEPLOYED_URL" "$STATIC_CORS_ORIGIN")
   echo ""
   echo "Updating ALLOWED_ORIGINS with Cloud Run URL: $DEPLOYED_URL"
   gcloud run services update "$SERVICE_NAME" \
