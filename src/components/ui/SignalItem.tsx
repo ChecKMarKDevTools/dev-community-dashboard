@@ -28,7 +28,7 @@ export function SignalItem({ tooltip, children, className }: SignalItemProps) {
           <span
             id={tooltipId}
             role="tooltip"
-            className="bg-surface-raised text-text-primary pointer-events-none absolute top-1/2 left-6 z-10 w-56 -translate-y-1/2 rounded-lg px-3 py-2 text-xs leading-relaxed opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus:opacity-100"
+            className="bg-surface-raised text-text-primary border-surface-border pointer-events-none absolute top-1/2 left-6 z-10 w-56 -translate-y-1/2 rounded-lg border px-3 py-2 text-xs leading-relaxed opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus:opacity-100"
           >
             {tooltip}
           </span>

@@ -17,7 +17,13 @@ import { PostMeta } from "@/components/ui/PostMeta";
 import { SectionCard } from "@/components/ui/SectionCard";
 import { QueueCard } from "@/components/ui/QueueCard";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
-import { AlertCircle, ChevronRight, ExternalLink, X } from "lucide-react";
+import {
+  AlertCircle,
+  ChevronRight,
+  ExternalLink,
+  MessageSquare,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   getAttentionVariant,
@@ -129,7 +135,7 @@ function DetailPanel({
 
         <p className="text-text-muted border-surface-border mb-8 border-y py-4 text-sm">
           {postDetails.reactions} reactions &middot; {postDetails.comments}{" "}
-          comments &middot; ~{extractWordCount(postDetails.explanations)} words
+          comments &middot; {extractWordCount(postDetails.explanations)} words
           &middot; {computeAgeHours(postDetails.published_at)}h old
         </p>
 
@@ -347,7 +353,8 @@ export function Dashboard() {
                 rel="noopener noreferrer"
                 className="border-surface-border text-accent-primary hover:bg-surface-secondary hover:text-accent-hover inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors"
               >
-                Feedback <ExternalLink className="h-3 w-3" />
+                <MessageSquare className="h-3 w-3" /> Feedback{" "}
+                <ExternalLink className="h-3 w-3" />
               </a>
             </div>
           </div>

@@ -315,7 +315,7 @@ describe("Dashboard Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/~1200 words/)).toBeInTheDocument();
+      expect(screen.getByText(/1200 words/)).toBeInTheDocument();
       expect(screen.getByText(/3h old/)).toBeInTheDocument();
     });
   });
