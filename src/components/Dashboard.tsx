@@ -35,7 +35,6 @@ import {
   extractWordCount,
   parseScoreBreakdown,
   getScoreNarrative,
-  getBehaviorDescription,
   getWhatsHappening,
   getSignalName,
   formatSignalDisplay,
@@ -330,18 +329,18 @@ export function Dashboard() {
       {/* Left panel: Post List */}
       <div
         className={cn(
-          "border-surface-border bg-paper-clue flex w-full flex-col border-r transition-all duration-300",
+          "border-surface-border glass-panel bg-paper-clue flex w-full flex-col border-r transition-all duration-300",
           selectedPostId ? "hidden md:flex md:w-1/2 lg:w-4/12" : "w-full",
         )}
       >
-        <div className="from-surface-secondary via-surface-raised to-surface-secondary border-surface-border border-b bg-gradient-to-r p-6">
+        <div className="header-glass border-surface-border border-b p-6">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="font-heading text-text-primary text-2xl font-bold tracking-tight">
                 DEV Community Dashboard
               </h1>
               <p className="text-text-muted mt-1 text-sm">
-                Identify meaningful discussions on Forem by measuring
+                Identify meaningful discussions on DEV.to by measuring
                 interaction patterns, not popularity.
               </p>
             </div>
@@ -381,7 +380,7 @@ export function Dashboard() {
                   variant={getAttentionVariant(post.attention_level)}
                   className="shrink-0"
                 >
-                  {getBehaviorDescription(post)}
+                  {getCategoryLabel(post.attention_level)}
                 </Badge>
               </div>
             </QueueCard>
