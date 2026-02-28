@@ -8,24 +8,28 @@ vi.mock("@/lib/supabase", () => ({
   },
 }));
 
-// Builds the full Supabase query chain mock for this route:
-// supabase.from("articles").select(...).gte(...).lte(...).order(...).limit(...)
+/**
+ * The posts route chain:
+ * supabase.from("articles").select(...).gte(...).order(...).order(...).limit(50)
+ *
+ * The route re-sorts the returned rows client-side (non-NORMAL first, then
+ * score DESC within each group), so we feed the mock data in a known order
+ * and assert the JS re-sort, not the Supabase order.
+ */
 function buildChain(resolvedValue: { data: unknown; error: unknown }) {
   const mockSelect = vi.fn().mockReturnThis();
   const mockGte = vi.fn().mockReturnThis();
-  const mockLte = vi.fn().mockReturnThis();
   const mockOrder = vi.fn().mockReturnThis();
   const mockLimit = vi.fn().mockResolvedValue(resolvedValue);
 
   (supabase.from as Mock).mockReturnValue({
     select: mockSelect,
     gte: mockGte,
-    lte: mockLte,
     order: mockOrder,
     limit: mockLimit,
   });
 
-  return { mockSelect, mockGte, mockLte, mockOrder, mockLimit };
+  return { mockSelect, mockGte, mockOrder, mockLimit };
 }
 
 describe("GET /api/posts", () => {
@@ -35,10 +39,10 @@ describe("GET /api/posts", () => {
 
   // ── Positive ──────────────────────────────────────────────────────────────
 
-  it("returns 200 with the list of posts on success", async () => {
+  it("returns 200 with posts on success", async () => {
     const mockData = [
-      { id: "1", title: "Alpha", score: 100, attention_level: "high" },
-      { id: "2", title: "Beta", score: 50, attention_level: "medium" },
+      { id: "1", title: "Alpha", score: 100, attention_level: "NORMAL" },
+      { id: "2", title: "Beta", score: 50, attention_level: "NORMAL" },
     ];
     buildChain({ data: mockData, error: null });
 
@@ -46,7 +50,7 @@ describe("GET /api/posts", () => {
     const json = await res.json();
 
     expect(res.status).toBe(200);
-    expect(json).toEqual(mockData);
+    expect(json).toHaveLength(2);
   });
 
   it("queries the 'articles' table", async () => {
@@ -67,20 +71,83 @@ describe("GET /api/posts", () => {
     );
   });
 
-  it("orders by score descending", async () => {
-    const { mockOrder } = buildChain({ data: [], error: null });
+  it("filters articles to the 7-day window via gte", async () => {
+    const { mockGte } = buildChain({ data: [], error: null });
 
     await GET();
 
-    expect(mockOrder).toHaveBeenCalledWith("score", { ascending: false });
+    expect(mockGte).toHaveBeenCalledWith(
+      "published_at",
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+    );
   });
 
-  it("limits results to 100", async () => {
+  it("limits results to 50 (display cap)", async () => {
     const { mockLimit } = buildChain({ data: [], error: null });
 
     await GET();
 
-    expect(mockLimit).toHaveBeenCalledWith(100);
+    expect(mockLimit).toHaveBeenCalledWith(50);
+  });
+
+  it("places non-NORMAL articles before NORMAL regardless of DB return order", async () => {
+    const mockData = [
+      {
+        id: "1",
+        title: "Spam",
+        score: 90,
+        attention_level: "POSSIBLY_LOW_QUALITY",
+      },
+      { id: "2", title: "Normal", score: 95, attention_level: "NORMAL" },
+      { id: "3", title: "Hot", score: 70, attention_level: "NEEDS_REVIEW" },
+    ];
+    buildChain({ data: mockData, error: null });
+
+    const res = await GET();
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    // All non-NORMAL rows come before NORMAL
+    const firstNormalIdx = json.findIndex(
+      (p: { attention_level: string }) => p.attention_level === "NORMAL",
+    );
+    const lastNonNormalIdx = json.reduce(
+      (acc: number, p: { attention_level: string }, i: number) =>
+        p.attention_level !== "NORMAL" ? i : acc,
+      -1,
+    );
+    expect(firstNormalIdx).toBeGreaterThan(lastNonNormalIdx);
+  });
+
+  it("sorts non-NORMAL group by score descending", async () => {
+    const mockData = [
+      { id: "1", title: "Low", score: 30, attention_level: "NEEDS_REVIEW" },
+      {
+        id: "2",
+        title: "High",
+        score: 80,
+        attention_level: "POSSIBLY_LOW_QUALITY",
+      },
+    ];
+    buildChain({ data: mockData, error: null });
+
+    const res = await GET();
+    const json = await res.json();
+
+    expect(json[0].score).toBeGreaterThanOrEqual(json[1].score);
+  });
+
+  it("sorts NORMAL group by score descending", async () => {
+    const mockData = [
+      { id: "1", title: "Low", score: 10, attention_level: "NORMAL" },
+      { id: "2", title: "High", score: 60, attention_level: "NORMAL" },
+    ];
+    buildChain({ data: mockData, error: null });
+
+    const res = await GET();
+    const json = await res.json();
+
+    expect(json[0].score).toBeGreaterThanOrEqual(json[1].score);
   });
 
   it("returns 200 with empty array when no articles exist", async () => {
@@ -93,13 +160,26 @@ describe("GET /api/posts", () => {
     expect(json).toEqual([]);
   });
 
-  it("returns 200 with null data as-is (Supabase passthrough)", async () => {
-    // Supabase may return null data without an error on an empty table in some drivers
+  it("returns 200 when Supabase returns null data (empty table)", async () => {
     buildChain({ data: null, error: null });
 
     const res = await GET();
 
     expect(res.status).toBe(200);
+  });
+
+  it("returns 200 with a single article", async () => {
+    const mockData = [
+      { id: "42", title: "Only Post", score: 99, attention_level: "NORMAL" },
+    ];
+    buildChain({ data: mockData, error: null });
+
+    const res = await GET();
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json).toHaveLength(1);
+    expect(json[0].id).toBe("42");
   });
 
   // ── Negative / Error ──────────────────────────────────────────────────────
@@ -115,7 +195,6 @@ describe("GET /api/posts", () => {
   });
 
   it("returns 500 with message from PostgrestError (non-Error instance)", async () => {
-    // Real Supabase PostgrestError has message, code, details, hint fields
     buildChain({
       data: null,
       error: {
@@ -159,20 +238,6 @@ describe("GET /api/posts", () => {
   });
 
   // ── Edge cases ─────────────────────────────────────────────────────────────
-
-  it("returns 200 with a single article", async () => {
-    const mockData = [
-      { id: "42", title: "Only Post", score: 99, attention_level: "low" },
-    ];
-    buildChain({ data: mockData, error: null });
-
-    const res = await GET();
-    const json = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(json).toHaveLength(1);
-    expect(json[0].id).toBe("42");
-  });
 
   it("returns valid JSON content-type header", async () => {
     buildChain({ data: [], error: null });

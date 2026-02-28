@@ -13,6 +13,21 @@ export interface SyncResult {
   errors: string[];
 }
 
+/**
+ * Maximum age of articles to consider for scoring.
+ * 7 days covers the community week-in-review horizon and aligns with
+ * the display window. Anything older is no longer actionable by moderators.
+ */
+export const SYNC_WINDOW_HOURS = 168; // 7 days
+
+/**
+ * Forem API hard limit: 30 requests per 30 seconds.
+ * The RequestQueue in forem.ts already enforces ≤5 parallel with a 1s
+ * cooldown between batches. Fetching pages sequentially stays well within
+ * the budget even for full 7-day bacfkill runs (typically 4–7 pages).
+ */
+export const MAX_PER_PAGE = 100;
+
 /** Resolves User from API, caching them logically (but ForemClient handles underlying caching too) */
 async function resolveUser(
   username: string,
@@ -462,18 +477,44 @@ async function deepScoreAndPersist(
   }
 }
 
-/** Fetch two pages of articles and filter to the 2–72 h sync window. */
+/**
+ * Fetch pages from Forem until we either run out of articles or the oldest
+ * article on the page exceeds the sync window age. Articles are returned
+ * newest-first by the API, so the first article older than the window on any
+ * page means all subsequent pages are also outside the window.
+ *
+ * This approach respects the API rate limit naturally: each page is a single
+ * request, and the RequestQueue in forem.ts throttles to ≤5 parallel with a
+ * 1s cooldown — well under the 30 req/30 s hard cap.
+ */
 async function fetchAndFilterArticles(): Promise<{
   allArticles: ForemArticle[];
   validArticles: ForemArticle[];
 }> {
-  const page1 = await ForemClient.getLatestArticles(1, 100);
-  const page2 = await ForemClient.getLatestArticles(2, 100);
-  const allArticles = [...page1, ...page2];
+  const allArticles: ForemArticle[] = [];
+  let page = 1;
+
+  while (true) {
+    const batch = await ForemClient.getLatestArticles(page, MAX_PER_PAGE);
+
+    // API returned an empty page — we've exhausted all available articles
+    if (batch.length === 0) break;
+
+    allArticles.push(...batch);
+
+    // The batch is newest-first; the last item is the oldest on this page.
+    // If it's already outside our window, all subsequent pages will be too.
+    const oldestOnPage = batch[batch.length - 1];
+    if (getAgeHours(oldestOnPage.published_at) > SYNC_WINDOW_HOURS) break;
+
+    page++;
+  }
 
   const validArticles = allArticles.filter((a) => {
     const ageHours = getAgeHours(a.published_at);
-    return ageHours >= 2 && ageHours <= 72;
+    // Lower bound: skip articles published in the last 2 hours — they're too
+    // fresh for meaningful scoring (low comment/reaction signal).
+    return ageHours >= 2 && ageHours <= SYNC_WINDOW_HOURS;
   });
 
   return { allArticles, validArticles };
@@ -495,35 +536,37 @@ function buildAuthorFrequencies(
   return postsByAuthor24h;
 }
 
-/** Light-score and rank articles, returning the top-N shortlist. */
+/**
+ * Light-score all articles to produce a ranked list for deep processing.
+ * No cap: every article in the window is scored and persisted. The display
+ * limit (top 50, non-NORMAL first) is enforced at query time by the API route.
+ */
 function lightScoreAndRank(
   validArticles: ForemArticle[],
   postsByAuthor24h: Map<string, number>,
-  maxToProcess: number,
 ) {
-  const scoredCandidates = validArticles.map((article) => {
-    const word_count = article.reading_time_minutes * 200;
-    const author_post_frequency =
-      postsByAuthor24h.get(article.user.username) || 1;
-    const age_hours = getAgeHours(article.published_at);
-    const preliminary_score =
-      article.public_reactions_count +
-      article.comments_count * 2 +
-      word_count / 100 -
-      age_hours -
-      author_post_frequency;
+  return validArticles
+    .map((article) => {
+      const word_count = article.reading_time_minutes * 200;
+      const author_post_frequency =
+        postsByAuthor24h.get(article.user.username) || 1;
+      const age_hours = getAgeHours(article.published_at);
+      const preliminary_score =
+        article.public_reactions_count +
+        article.comments_count * 2 +
+        word_count / 100 -
+        age_hours -
+        author_post_frequency;
 
-    return {
-      article,
-      preliminary_score,
-      word_count,
-      age_hours,
-      author_post_frequency,
-    };
-  });
-
-  scoredCandidates.sort((a, b) => b.preliminary_score - a.preliminary_score);
-  return scoredCandidates.slice(0, maxToProcess);
+      return {
+        article,
+        preliminary_score,
+        word_count,
+        age_hours,
+        author_post_frequency,
+      };
+    })
+    .sort((a, b) => b.preliminary_score - a.preliminary_score);
 }
 
 /** Ensure author row exists in the users table (upsert once per sync run). */
@@ -542,6 +585,16 @@ async function ensureAuthorUpserted(
   upsertedAuthors.add(username);
 }
 
+/**
+ * Main sync entry point.
+ *
+ * Fetches all articles published within the last SYNC_WINDOW_HOURS (7 days),
+ * deep-scores every one of them, and upserts results to Supabase. No article
+ * cap is applied here — the display limit is handled at query time.
+ *
+ * The optional `maxToProcess` parameter exists solely for unit tests so they
+ * can keep test suites fast without fetching a full week of data.
+ */
 export async function syncArticles(maxToProcess?: number): Promise<SyncResult> {
   const errors: string[] = [];
   const userCache = new Map<string, ForemUser | null>();
@@ -550,16 +603,17 @@ export async function syncArticles(maxToProcess?: number): Promise<SyncResult> {
   try {
     const { allArticles, validArticles } = await fetchAndFilterArticles();
     const postsByAuthor24h = buildAuthorFrequencies(allArticles);
-    const shortlist = lightScoreAndRank(
-      validArticles,
-      postsByAuthor24h,
-      maxToProcess || 20,
-    );
+    const shortlist = lightScoreAndRank(validArticles, postsByAuthor24h);
+
+    // In production maxToProcess is undefined → process all valid articles.
+    // In tests it is set to a small number to keep suites fast.
+    const toProcess =
+      maxToProcess !== undefined ? shortlist.slice(0, maxToProcess) : shortlist;
 
     let synced = 0;
     let failed = 0;
 
-    for (const candidate of shortlist) {
+    for (const candidate of toProcess) {
       try {
         const {
           article,
