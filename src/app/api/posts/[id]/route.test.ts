@@ -170,16 +170,23 @@ describe("GET /api/posts/[id]", () => {
 
   it("returns 400 for a float string ID", async () => {
     const req = new NextRequest("http://localhost:3000/api/posts/1.5");
-    // Number.parseInt("1.5") = 1, which is NOT NaN — the route will proceed.
-    // This verifies parseInt's truncating behavior: float strings are treated as integer.
-    buildChain(
-      { data: { id: 1, author: "u" }, error: null },
-      { data: [], error: null },
-    );
-
     const res = await GET(req, makeParams("1.5"));
-    // parseInt("1.5") → 1, so no 400; article lookup runs normally.
-    expect(res.status).toBe(200);
+    const json = await res.json();
+
+    // Number("1.5") → 1.5 → !isInteger(1.5) → 400
+    expect(res.status).toBe(400);
+    expect(json.error).toBe("Invalid ID");
+  });
+
+  it("returns 400 for an alpha-suffixed string ID (e.g. '1abc')", async () => {
+    const req = new NextRequest("http://localhost:3000/api/posts/1abc");
+    const res = await GET(req, makeParams("1abc"));
+    const json = await res.json();
+
+    // Number("1abc") → NaN → !isInteger(NaN) → 400
+    // (parseInt would have silently truncated to 1 and fetched the wrong record)
+    expect(res.status).toBe(400);
+    expect(json.error).toBe("Invalid ID");
   });
 
   it("returns 400 for an empty string ID", async () => {
@@ -286,13 +293,12 @@ describe("GET /api/posts/[id]", () => {
     });
 
     const req = new NextRequest("http://localhost:3000/api/posts/1");
-    // The route has no try/catch around params, but the Supabase call is inside GET.
-    // The thrown error bubbles up through the route handler.
-    // Note: route.ts has no outer try/catch — the error propagates as unhandled.
-    // This documents the existing behavior.
-    await expect(GET(req, makeParams("1"))).rejects.toThrow(
-      "Client uninitialized",
-    );
+    const res = await GET(req, makeParams("1"));
+    const json = await res.json();
+
+    // The outer try/catch wraps Supabase calls and returns a structured 500.
+    expect(res.status).toBe(500);
+    expect(json.error).toBe("Client uninitialized");
   });
 
   // ── Boundary / numeric edge cases ─────────────────────────────────────────

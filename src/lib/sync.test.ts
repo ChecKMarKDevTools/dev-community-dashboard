@@ -1,5 +1,5 @@
 import { syncArticles } from "./sync";
-import { ForemClient } from "@/lib/forem";
+import { ForemArticle, ForemClient } from "@/lib/forem";
 import { evaluatePriority } from "@/lib/scoring";
 import { supabase } from "@/lib/supabase";
 import { vi, type Mock } from "vitest";
@@ -25,18 +25,43 @@ vi.mock("@/lib/supabase", () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeArticle(overrides: Record<string, unknown> = {}) {
+function makeArticle(overrides: Record<string, unknown> = {}): ForemArticle {
   return {
     id: 1,
     title: "Test Article",
-    published_at: "2024-01-01T10:00:00Z",
-    public_reactions_count: 5,
+    description: "",
+    readable_publish_date: "Jan 1",
+    slug: "test-article",
+    path: "/testuser/test-article",
+    url: "https://dev.to/testuser/test-article",
     comments_count: 2,
-    tag_list: ["javascript"],
+    public_reactions_count: 5,
+    collection_id: null,
+    published_timestamp: "2024-01-01T10:00:00Z",
+    positive_reactions_count: 5,
+    cover_image: null,
+    social_image: "https://dev.to/social.png",
     canonical_url: "https://dev.to/test",
-    user: { username: "testuser" },
+    created_at: "2024-01-01T10:00:00Z",
+    edited_at: null,
+    crossposted_at: null,
+    published_at: "2024-01-01T10:00:00Z",
+    last_comment_at: "2024-01-01T10:00:00Z",
+    reading_time_minutes: 3,
+    tag_list: ["javascript"],
+    tags: "javascript",
+    user: {
+      name: "Test User",
+      username: "testuser",
+      twitter_username: null,
+      github_username: null,
+      user_id: 1,
+      website_url: null,
+      profile_image: "https://example.com/pic.jpg",
+      profile_image_90: "https://example.com/pic90.jpg",
+    },
     ...overrides,
-  };
+  } as ForemArticle;
 }
 
 function makeScore(overrides: Record<string, unknown> = {}) {
@@ -280,6 +305,80 @@ describe("syncArticles", () => {
     expect(bobRecentPosts.every((a) => a.user.username === "bob")).toBe(true);
   });
 
+  // ── Author deduplication ───────────────────────────────────────────────────
+
+  it("fetches each unique author only once across multiple articles from the same author", async () => {
+    const articles = [
+      makeArticle({ id: 1, user: { username: "alice" } }),
+      makeArticle({ id: 2, user: { username: "alice" } }),
+      makeArticle({ id: 3, user: { username: "alice" } }),
+    ];
+
+    (ForemClient.getUserByUsername as Mock).mockResolvedValue(null);
+    (ForemClient.getComments as Mock).mockResolvedValue([]);
+    (evaluatePriority as Mock).mockReturnValue(makeScore());
+
+    const chain = makeUpsertChain();
+    (supabase.from as Mock).mockReturnValue(chain);
+
+    await syncArticles(articles);
+
+    expect(ForemClient.getUserByUsername).toHaveBeenCalledTimes(1);
+    expect(ForemClient.getUserByUsername).toHaveBeenCalledWith("alice");
+  });
+
+  it("upserts each unique author's user record exactly once even with multiple articles", async () => {
+    const detailedUser = {
+      username: "alice",
+      joined_at: "2023-01-01T00:00:00Z",
+    };
+    const articles = [
+      makeArticle({ id: 1, user: { username: "alice" } }),
+      makeArticle({ id: 2, user: { username: "alice" } }),
+      makeArticle({ id: 3, user: { username: "bob" } }),
+    ];
+
+    (ForemClient.getUserByUsername as Mock).mockResolvedValue(detailedUser);
+    (ForemClient.getComments as Mock).mockResolvedValue([]);
+    (evaluatePriority as Mock).mockReturnValue(makeScore());
+
+    const chain = makeUpsertChain();
+    (supabase.from as Mock).mockReturnValue(chain);
+
+    await syncArticles(articles);
+
+    // 2 unique authors → 2 getUserByUsername calls, 2 user upserts
+    expect(ForemClient.getUserByUsername).toHaveBeenCalledTimes(2);
+    const userUpserts = (supabase.from as Mock).mock.calls
+      .map((call) => call[0])
+      .filter((table) => table === "users");
+    expect(userUpserts).toHaveLength(2);
+  });
+
+  it("passes all same-author articles as recentPosts for each of that author's articles", async () => {
+    const articles = [
+      makeArticle({ id: 10, user: { username: "alice" } }),
+      makeArticle({ id: 11, user: { username: "alice" } }),
+      makeArticle({ id: 12, user: { username: "alice" } }),
+    ];
+
+    (ForemClient.getUserByUsername as Mock).mockResolvedValue(null);
+    (ForemClient.getComments as Mock).mockResolvedValue([]);
+    (evaluatePriority as Mock).mockReturnValue(makeScore());
+
+    const chain = makeUpsertChain();
+    (supabase.from as Mock).mockReturnValue(chain);
+
+    await syncArticles(articles);
+
+    // All 3 evaluatePriority calls should receive all 3 alice articles as recentPosts.
+    for (const call of (evaluatePriority as Mock).mock.calls) {
+      const recentPosts = call[3] as Array<{ user: { username: string } }>;
+      expect(recentPosts).toHaveLength(3);
+      expect(recentPosts.every((a) => a.user.username === "alice")).toBe(true);
+    }
+  });
+
   // ── Error / exception flows ────────────────────────────────────────────────
 
   it("captures getUserByUsername error in result and continues", async () => {
@@ -306,7 +405,7 @@ describe("syncArticles", () => {
     expect(result.errors[0]).toContain("Comment API error");
   });
 
-  it("captures supabase upsert error in result and continues", async () => {
+  it("captures supabase upsert promise rejection in result and continues", async () => {
     (ForemClient.getUserByUsername as Mock).mockResolvedValue(null);
     (ForemClient.getComments as Mock).mockResolvedValue([]);
     (evaluatePriority as Mock).mockReturnValue(makeScore());
@@ -319,6 +418,26 @@ describe("syncArticles", () => {
 
     expect(result.failed).toBe(1);
     expect(result.errors[0]).toContain("Supabase write failure");
+  });
+
+  it("captures supabase upsert resolved error field in result and continues", async () => {
+    // Supabase resolves (does not throw) with { error } on write failures.
+    // This test verifies those non-throwing errors are surfaced via SyncResult.
+    (ForemClient.getUserByUsername as Mock).mockResolvedValue(null);
+    (ForemClient.getComments as Mock).mockResolvedValue([]);
+    (evaluatePriority as Mock).mockReturnValue(makeScore());
+
+    (supabase.from as Mock).mockReturnValue({
+      upsert: vi.fn().mockResolvedValue({
+        data: null,
+        error: { message: "unique constraint violated", code: "23505" },
+      }),
+    });
+
+    const result = await syncArticles([makeArticle()]);
+
+    expect(result.failed).toBe(1);
+    expect(result.errors[0]).toContain("unique constraint violated");
   });
 
   it("continues processing subsequent articles after a per-article error", async () => {

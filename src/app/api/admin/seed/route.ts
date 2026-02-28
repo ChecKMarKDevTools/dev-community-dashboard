@@ -35,17 +35,25 @@ async function parseDaysFromBody(
   const rawDays = (body as Record<string, unknown>).days;
   if (rawDays === undefined) return DEFAULT_DAYS;
 
-  // Guard against Object#toString producing "[object Object]" in parseInt.
+  // Guard against Object#toString producing "[object Object]" in Number().
   if (typeof rawDays !== "string" && typeof rawDays !== "number") {
     return NextResponse.json({ error: DAYS_RANGE_ERROR }, { status: 400 });
   }
 
-  const parsed = Number.parseInt(String(rawDays), 10);
-  if (Number.isNaN(parsed) || parsed < 1 || parsed > MAX_DAYS) {
+  // Use Number() so that float strings like "7.5" produce 7.5 (not 7 via
+  // parseInt truncation), then Number.isInteger() rejects them as non-integer.
+  const numericDays =
+    typeof rawDays === "number" ? rawDays : Number(rawDays.trim());
+  if (
+    Number.isNaN(numericDays) ||
+    !Number.isInteger(numericDays) ||
+    numericDays < 1 ||
+    numericDays > MAX_DAYS
+  ) {
     return NextResponse.json({ error: DAYS_RANGE_ERROR }, { status: 400 });
   }
 
-  return parsed;
+  return numericDays;
 }
 
 /**

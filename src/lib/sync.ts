@@ -1,4 +1,4 @@
-import { ForemArticle, ForemClient } from "@/lib/forem";
+import { ForemArticle, ForemUser, ForemClient } from "@/lib/forem";
 import { evaluatePriority } from "@/lib/scoring";
 import { supabase } from "@/lib/supabase";
 
@@ -13,6 +13,12 @@ export interface SyncResult {
  * Supabase. The full batch is passed so that per-author recent-post context is
  * available when computing priority scores.
  *
+ * Articles are pre-grouped by author in O(N) before the main loop, avoiding
+ * the O(N²) per-article filter that would arise from scanning the whole batch
+ * for each article. User API lookups are cached so each unique author is
+ * fetched at most once per sync run, reducing Forem API load and guarding
+ * against rate-limit exhaustion.
+ *
  * Per-article errors are non-fatal: failures are logged, counted, and included
  * in the returned SyncResult so the caller can surface them without aborting
  * the remaining articles.
@@ -22,22 +28,47 @@ export async function syncArticles(
 ): Promise<SyncResult> {
   const errors: string[] = [];
 
+  // Pre-group by author — O(N) total, eliminates the O(N²) per-article filter.
+  const articlesByAuthor = new Map<string, ForemArticle[]>();
+  for (const article of articles) {
+    const username = article.user.username;
+    const group = articlesByAuthor.get(username);
+    if (group) {
+      group.push(article);
+    } else {
+      articlesByAuthor.set(username, [article]);
+    }
+  }
+
+  // Cache successful user lookups so each unique author is fetched once.
+  const userCache = new Map<string, ForemUser | null>();
+  // Track which authors have already been upserted to avoid redundant writes.
+  const upsertedAuthors = new Set<string>();
+
   for (const article of articles) {
     try {
-      const author = article.user;
+      const username = article.user.username;
 
-      const detailedUser = await ForemClient.getUserByUsername(author.username);
-      if (detailedUser) {
-        await supabase.from("users").upsert({
+      let detailedUser: ForemUser | null;
+      const cachedUser = userCache.get(username);
+      if (cachedUser !== undefined) {
+        detailedUser = cachedUser;
+      } else {
+        detailedUser = await ForemClient.getUserByUsername(username);
+        userCache.set(username, detailedUser);
+      }
+
+      if (detailedUser && !upsertedAuthors.has(username)) {
+        const { error: userError } = await supabase.from("users").upsert({
           username: detailedUser.username,
           joined_at: detailedUser.joined_at,
           updated_at: new Date().toISOString(),
         });
+        if (userError) throw new Error(userError.message);
+        upsertedAuthors.add(username);
       }
 
-      const recentPosts = articles.filter(
-        (a) => a.user.username === author.username,
-      );
+      const recentPosts = articlesByAuthor.get(username) ?? [];
       const comments = await ForemClient.getComments(article.id);
       const score = evaluatePriority(
         article,
@@ -46,9 +77,9 @@ export async function syncArticles(
         recentPosts,
       );
 
-      await supabase.from("articles").upsert({
+      const { error: articleError } = await supabase.from("articles").upsert({
         id: article.id,
-        author: author.username,
+        author: username,
         published_at: article.published_at,
         reactions: article.public_reactions_count,
         comments: article.comments_count,
@@ -60,14 +91,16 @@ export async function syncArticles(
         title: article.title,
         updated_at: new Date().toISOString(),
       });
+      if (articleError) throw new Error(articleError.message);
 
       for (const comment of comments) {
-        await supabase
+        const { error: commenterError } = await supabase
           .from("commenters")
           .upsert(
             { article_id: article.id, username: comment.user.username },
             { onConflict: "article_id,username" },
           );
+        if (commenterError) throw new Error(commenterError.message);
       }
     } catch (err) {
       const message =

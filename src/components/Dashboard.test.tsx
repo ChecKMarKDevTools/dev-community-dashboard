@@ -5,32 +5,28 @@ import { vi, Mock } from "vitest";
 // Set up mock fetch
 const mockPosts = [
   {
-    id: "post-1",
+    id: 1,
     title: "Highly toxic post",
-    url: "https://dev.to/test/post-1",
+    canonical_url: "https://dev.to/test/post-1",
     score: 85,
     attention_level: "high",
     explanations: ["Triggered toxic words", "High flag ratio"],
-    created_at: "2023-10-27T10:00:00Z",
-    author_name: "Test Author",
-    author_username: "testauthor",
-    comments_count: 50,
-    public_reactions_count: 10,
-    page_views_count: 1000,
+    published_at: "2023-10-27T10:00:00Z",
+    author: "testauthor",
+    reactions: 10,
+    comments: 50,
   },
   {
-    id: "post-2",
+    id: 2,
     title: "Normal post",
-    url: "https://dev.to/test/post-2",
+    canonical_url: "https://dev.to/test/post-2",
     score: 15,
     attention_level: "low",
     explanations: [],
-    created_at: "2023-10-26T10:00:00Z",
-    author_name: "Good User",
-    author_username: "gooduser",
-    comments_count: 5,
-    public_reactions_count: 20,
-    page_views_count: 500,
+    published_at: "2023-10-26T10:00:00Z",
+    author: "gooduser",
+    reactions: 20,
+    comments: 5,
   },
 ];
 
@@ -39,12 +35,12 @@ const mockPostDetails = {
   score_breakdown: { behavior: 40, audience: 25, pattern: 20 },
   recent_posts: [
     {
-      id: "post-3",
+      id: 3,
       title: "Previous post",
-      url: "https://dev.to/test/post-3",
+      canonical_url: "https://dev.to/test/post-3",
       score: 10,
       attention_level: "low",
-      created_at: "2023-10-20T10:00:00Z",
+      published_at: "2023-10-20T10:00:00Z",
     },
   ],
 };
@@ -81,7 +77,7 @@ describe("Dashboard Component", () => {
     globalThis.fetch = vi.fn().mockImplementation((url) => {
       if (url === "/api/posts")
         return Promise.resolve({ ok: true, json: async () => mockPosts });
-      if (url === "/api/posts/post-1")
+      if (url === "/api/posts/1")
         return Promise.resolve({ ok: true, json: async () => mockPostDetails });
       return Promise.reject(new Error("Not found"));
     });
@@ -101,7 +97,8 @@ describe("Dashboard Component", () => {
       expect(screen.getByText("Score Breakdown")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("@testauthor")).toBeInTheDocument();
+    // @testauthor now appears in both the list card and the detail panel
+    expect(screen.getAllByText("@testauthor").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("Triggered toxic words")).toBeInTheDocument();
   });
 

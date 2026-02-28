@@ -5,7 +5,9 @@ export async function GET() {
   try {
     const { data, error } = await supabase
       .from("articles")
-      .select("id, title, author, score, attention_level")
+      .select(
+        "id, title, author, score, attention_level, canonical_url, published_at, reactions, comments, explanations",
+      )
       .order("score", { ascending: false })
       .limit(100);
 

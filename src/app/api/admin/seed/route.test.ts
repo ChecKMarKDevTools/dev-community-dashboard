@@ -197,6 +197,26 @@ describe("POST /api/admin/seed", () => {
       expect(json.days).toBe(7);
     });
 
+    it("returns 400 when days is a float string (e.g. '7.5')", async () => {
+      const res = await POST(
+        makeRequest(`Bearer ${VALID_SECRET}`, { days: "7.5" }),
+      );
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toMatch(
+        /days must be an integer between 1 and 90/,
+      );
+    });
+
+    it("returns 400 when days is a float number (e.g. 7.5)", async () => {
+      const res = await POST(
+        makeRequest(`Bearer ${VALID_SECRET}`, { days: 7.5 }),
+      );
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toMatch(
+        /days must be an integer between 1 and 90/,
+      );
+    });
+
     it("returns 400 when days is an object (prevents [object Object] stringification)", async () => {
       const res = await POST(
         makeRequest(`Bearer ${VALID_SECRET}`, { days: { value: 7 } }),
