@@ -160,8 +160,8 @@ function buildCronMocks(articleCount: number) {
 /** Returns p99 latency from an array of samples in ms. */
 function p99(samples: number[]): number {
   const sorted = [...samples].sort((a, b) => a - b);
-  const idx = Math.floor(sorted.length * 0.99);
-  return sorted[Math.min(idx, sorted.length - 1)];
+  const idx = Math.floor((sorted.length - 1) * 0.99);
+  return sorted[idx];
 }
 
 // ---------------------------------------------------------------------------
