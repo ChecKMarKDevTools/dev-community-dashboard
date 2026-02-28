@@ -1,4 +1,4 @@
-import { ForemClient } from "./forem";
+import { ForemClient, foremQueue } from "./forem";
 import { vi, type Mock } from "vitest";
 
 describe("ForemClient", () => {
@@ -8,6 +8,7 @@ describe("ForemClient", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    foremQueue.reset();
   });
 
   it("fetches latest articles", async () => {
@@ -44,7 +45,7 @@ describe("ForemClient", () => {
       json: async () => mockResponse,
     });
 
-    const result = await ForemClient.getUserByUsername("test");
+    const result = await ForemClient.getUserByUsername("test2");
     expect(result).toEqual(mockResponse);
   });
 
@@ -54,7 +55,7 @@ describe("ForemClient", () => {
       status: 404,
     });
 
-    const result = await ForemClient.getUserByUsername("not-found");
+    const result = await ForemClient.getUserByUsername("not-found-2");
     expect(result).toBeNull();
   });
 
@@ -70,8 +71,11 @@ describe("ForemClient", () => {
   });
 
   it("handles article fetch errors", async () => {
-    (globalThis.fetch as Mock).mockResolvedValueOnce({ ok: false });
-    await expect(ForemClient.getArticle(1)).rejects.toThrow(
+    (globalThis.fetch as Mock).mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+    });
+    await expect(ForemClient.getArticle(1, false)).rejects.toThrow(
       "Failed to fetch article 1",
     );
   });
@@ -88,8 +92,11 @@ describe("ForemClient", () => {
   });
 
   it("handles comments fetch errors", async () => {
-    (globalThis.fetch as Mock).mockResolvedValueOnce({ ok: false });
-    await expect(ForemClient.getComments(1)).rejects.toThrow(
+    (globalThis.fetch as Mock).mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+    });
+    await expect(ForemClient.getComments(1, false)).rejects.toThrow(
       "Failed to fetch comments for article 1",
     );
   });
@@ -109,6 +116,7 @@ describe("ForemClient — API key header", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    foremQueue.reset();
     if (savedApiKey === undefined) {
       delete process.env.FOREM_API_KEY;
     } else {
@@ -165,11 +173,13 @@ describe("ForemClient — 429 retry", () => {
   // Fake timers prevent real delays from slowing the suite.
   beforeEach(() => {
     globalThis.fetch = vi.fn();
+    foremQueue.reset();
     vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.clearAllMocks();
+    foremQueue.reset();
     vi.useRealTimers();
   });
 
@@ -278,11 +288,12 @@ describe("ForemClient — 429 retry", () => {
     (globalThis.fetch as Mock).mockResolvedValueOnce({
       ok: false,
       status: 500,
+      statusText: "Internal Server Error",
     });
 
     // No setTimeout is scheduled (500 is not retried), so we can await directly.
-    await expect(ForemClient.getComments(1)).rejects.toThrow(
-      "Failed to fetch comments for article 1",
+    await expect(ForemClient.getComments(999)).rejects.toThrow(
+      "Failed to fetch comments for article 999",
     );
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
@@ -293,7 +304,7 @@ describe("ForemClient — 429 retry", () => {
       status: 404,
     });
 
-    const result = await ForemClient.getUserByUsername("ghost");
+    const result = await ForemClient.getUserByUsername("ghost2");
     expect(result).toBeNull();
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });

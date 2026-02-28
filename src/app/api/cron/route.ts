@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { ForemClient } from "@/lib/forem";
 import { syncArticles } from "@/lib/sync";
 
 export async function POST(request: Request) {
@@ -9,8 +8,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const articles = await ForemClient.getLatestArticles(1, 100);
-    const result = await syncArticles(articles);
+    const result = await syncArticles(5);
     return NextResponse.json({ success: true, ...result });
   } catch (error: unknown) {
     console.error("Cron sync failed", error);

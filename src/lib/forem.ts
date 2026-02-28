@@ -77,11 +77,67 @@ function buildHeaders(): Record<string, string> {
   return apiKey ? { "api-key": apiKey } : {};
 }
 
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const memoryCache = new Map<string, { data: unknown; timestamp: number }>();
+
+function getCached<T>(key: string): T | null {
+  const cached = memoryCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - cached.timestamp > CACHE_TTL_MS) {
+    memoryCache.delete(key);
+    return null;
+  }
+  return cached.data as T;
+}
+
+function setCached(key: string, data: unknown) {
+  memoryCache.set(key, { data, timestamp: Date.now() });
+}
+
+class RequestQueue {
+  private activeCount = 0;
+  private queue: (() => void)[] = [];
+  private readonly maxParallel = 5;
+  private readonly delayBetweenBatchesMs = 1000; // 800-1200 avg
+  private lastBatchTime = Date.now();
+
+  async enqueue<T>(task: () => Promise<T>): Promise<T> {
+    if (this.activeCount >= this.maxParallel) {
+      await new Promise<void>((resolve) => this.queue.push(resolve));
+    }
+
+    const now = Date.now();
+    if (
+      this.activeCount === 0 &&
+      now - this.lastBatchTime < this.delayBetweenBatchesMs
+    ) {
+      await new Promise((r) =>
+        setTimeout(r, this.delayBetweenBatchesMs - (now - this.lastBatchTime)),
+      );
+    }
+
+    this.activeCount++;
+    try {
+      return await task();
+    } finally {
+      this.activeCount--;
+      this.lastBatchTime = Date.now();
+      this.queue.shift()?.();
+    }
+  }
+
+  reset() {
+    this.activeCount = 0;
+    this.queue = [];
+    this.lastBatchTime = 0;
+  }
+}
+
+export const foremQueue = new RequestQueue();
+
 /**
  * Wraps fetch with exponential-backoff retry on HTTP 429 (rate-limited).
- * Respects the Retry-After response header when present; otherwise uses
- * RETRY_BASE_DELAY_MS * 2^attempt. Gives up after MAX_RETRIES retries and
- * returns the final response so the caller can inspect the status.
+ * Enforces the 3000ms delay on 429 as specified.
  */
 async function fetchWithRetry(
   url: string,
@@ -92,21 +148,27 @@ async function fetchWithRetry(
     ...buildHeaders(),
     ...(init?.headers as Record<string, string> | undefined),
   };
-  const res = await fetch(url, { ...init, headers: mergedHeaders });
 
-  if (res.status === 429 && attempt < MAX_RETRIES) {
-    const retryAfterHeader = res.headers.get("retry-after");
-    const retryAfterSec = retryAfterHeader
-      ? Number.parseInt(retryAfterHeader, 10)
-      : Number.NaN;
-    const delayMs = Number.isNaN(retryAfterSec)
-      ? RETRY_BASE_DELAY_MS * 2 ** attempt
-      : retryAfterSec * 1000;
-    await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-    return fetchWithRetry(url, init, attempt + 1);
-  }
+  return foremQueue.enqueue(async () => {
+    const res = await fetch(url, { ...init, headers: mergedHeaders });
 
-  return res;
+    if (res.status === 429 && attempt < MAX_RETRIES) {
+      const retryAfterHeader = res.headers.get("retry-after");
+      const retryAfterSec = retryAfterHeader
+        ? Number.parseInt(retryAfterHeader, 10)
+        : Number.NaN;
+
+      let delayMs = RETRY_BASE_DELAY_MS * 2 ** attempt;
+      if (!Number.isNaN(retryAfterSec)) {
+        delayMs = retryAfterSec * 1000;
+      }
+
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      return fetchWithRetry(url, init, attempt + 1);
+    }
+
+    return res;
+  });
 }
 
 export class ForemClient {
@@ -114,34 +176,61 @@ export class ForemClient {
     page: number = 1,
     perPage: number = 100,
   ): Promise<ForemArticle[]> {
-    const res = await fetchWithRetry(
-      `${BASE_URL}/articles?per_page=${perPage}&page=${page}`,
-      // next.revalidate is a Next.js fetch extension for CDN cache control
-      { next: { revalidate: 300 } } as RequestInit,
-    );
+    const url = `${BASE_URL}/articles?per_page=${perPage}&page=${page}`;
+    const res = await fetchWithRetry(url, {
+      next: { revalidate: 300 },
+    } as RequestInit);
     if (!res.ok) throw new Error("Failed to fetch articles");
     return res.json();
   }
 
-  static async getArticle(id: number): Promise<ForemArticle> {
+  static async getArticle(
+    id: number,
+    skip_refetch_if_cached = true,
+  ): Promise<ForemArticle> {
+    const cacheKey = `article_${id}`;
+    if (skip_refetch_if_cached) {
+      const cached = getCached<ForemArticle>(cacheKey);
+      if (cached) return cached;
+    }
+
     const res = await fetchWithRetry(`${BASE_URL}/articles/${id}`);
     if (!res.ok) throw new Error(`Failed to fetch article ${id}`);
-    return res.json();
+    const data = await res.json();
+    setCached(cacheKey, data);
+    return data;
   }
 
   static async getUserByUsername(username: string): Promise<ForemUser | null> {
+    const cacheKey = `user_${username}`;
+    const cached = getCached<ForemUser>(cacheKey);
+    if (cached) return cached;
+
     const res = await fetchWithRetry(
       `${BASE_URL}/users/by_username?url=${username}`,
     );
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`Failed to fetch user ${username}`);
-    return res.json();
+    const data = await res.json();
+    setCached(cacheKey, data);
+    return data;
   }
 
-  static async getComments(articleId: number): Promise<ForemComment[]> {
+  static async getComments(
+    articleId: number,
+    skip_refetch_if_cached = true,
+  ): Promise<ForemComment[]> {
+    const cacheKey = `comments_${articleId}`;
+    if (skip_refetch_if_cached) {
+      const cached = getCached<ForemComment[]>(cacheKey);
+      if (cached) return cached;
+    }
+
     const res = await fetchWithRetry(`${BASE_URL}/comments?a_id=${articleId}`);
     if (!res.ok)
       throw new Error(`Failed to fetch comments for article ${articleId}`);
-    return res.json();
+    const data = await res.json();
+    setCached(cacheKey, data);
+    return data;
   }
 }

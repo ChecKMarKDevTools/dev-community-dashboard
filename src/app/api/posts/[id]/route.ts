@@ -28,10 +28,12 @@ export async function GET(
       return NextResponse.json({ error: "Post not found" }, { status: 404 });
     }
 
-    // Fetch recent posts by same author (include canonical_url for linking)
+    // Fetch recent posts by same author (include dev_url and canonical_url for linking)
     const { data: recentPosts, error: recentError } = await supabase
       .from("articles")
-      .select("id, title, published_at, score, attention_level, canonical_url")
+      .select(
+        "id, title, published_at, score, attention_level, canonical_url, url",
+      )
       .eq("author", article.author)
       .neq("id", id)
       .order("published_at", { ascending: false })

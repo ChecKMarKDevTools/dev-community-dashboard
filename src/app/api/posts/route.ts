@@ -3,11 +3,17 @@ import { supabase } from "@/lib/supabase";
 
 export async function GET() {
   try {
+    // Calculate time bounds for UI filtering (between 2 and 72 hours ago)
+    const upperLimit = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const lowerLimit = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
+
     const { data, error } = await supabase
       .from("articles")
       .select(
-        "id, title, author, score, attention_level, canonical_url, published_at, reactions, comments, explanations",
+        "id, title, author, score, attention_level, canonical_url, url, published_at, reactions, comments, explanations, age_hours, word_count",
       )
+      .gte("published_at", lowerLimit)
+      .lte("published_at", upperLimit)
       .order("score", { ascending: false })
       .limit(100);
 

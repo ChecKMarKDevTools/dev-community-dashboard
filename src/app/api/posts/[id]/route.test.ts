@@ -69,6 +69,8 @@ describe("GET /api/posts/[id]", () => {
         published_at: "2024-01-01",
         score: 40,
         attention_level: "low",
+        canonical_url: "https://example.com/2",
+        dev_url: "https://dev.to/older",
       },
     ];
     buildChain({ data: article, error: null }, { data: recent, error: null });
@@ -135,6 +137,8 @@ describe("GET /api/posts/[id]", () => {
       reactions: 10,
       comments: 3,
       published_at: "2024-06-01T00:00:00Z",
+      canonical_url: "https://example.com/77",
+      dev_url: "https://dev.to/testing",
     };
     buildChain({ data: article, error: null }, { data: [], error: null });
 

@@ -12,14 +12,20 @@ vi.mock("@/lib/supabase", () => ({
 // supabase.from("articles").select(...).order(...).limit(...)
 function buildChain(resolvedValue: { data: unknown; error: unknown }) {
   const mockSelect = vi.fn().mockReturnThis();
+  const mockGte = vi.fn().mockReturnThis();
+  const mockLte = vi.fn().mockReturnThis();
   const mockOrder = vi.fn().mockReturnThis();
   const mockLimit = vi.fn().mockResolvedValue(resolvedValue);
+
   (supabase.from as Mock).mockReturnValue({
     select: mockSelect,
+    gte: mockGte,
+    lte: mockLte,
     order: mockOrder,
     limit: mockLimit,
   });
-  return { mockSelect, mockOrder, mockLimit };
+
+  return { mockSelect, mockGte, mockLte, mockOrder, mockLimit };
 }
 
 describe("GET /api/posts", () => {
@@ -57,7 +63,7 @@ describe("GET /api/posts", () => {
     await GET();
 
     expect(mockSelect).toHaveBeenCalledWith(
-      "id, title, author, score, attention_level, canonical_url, published_at, reactions, comments, explanations",
+      "id, title, author, score, attention_level, canonical_url, url, published_at, reactions, comments, explanations, age_hours, word_count",
     );
   });
 
