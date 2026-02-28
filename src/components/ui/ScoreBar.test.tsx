@@ -1,0 +1,67 @@
+import { render, screen } from "@testing-library/react";
+import { ScoreBar } from "./ScoreBar";
+
+describe("ScoreBar", () => {
+  const defaultProps = {
+    label: "Activity Level",
+    sublabel: "High",
+    description: "Very active discussion.",
+    value: 15,
+    max: 50,
+    colorClass: "bg-warning-500",
+  };
+
+  it("renders label, sublabel, and description", () => {
+    render(<ScoreBar {...defaultProps} />);
+    expect(screen.getByText("Activity Level")).toBeInTheDocument();
+    expect(screen.getByText("High")).toBeInTheDocument();
+    expect(screen.getByText("Very active discussion.")).toBeInTheDocument();
+  });
+
+  it("computes correct width percentage", () => {
+    const { container } = render(<ScoreBar {...defaultProps} />);
+    const bar = container.querySelector(
+      `.${defaultProps.colorClass.replace("/", "\\/")}`,
+    );
+    expect(bar).toHaveStyle({ width: "30%" }); // 15/50 * 100 = 30%
+  });
+
+  it("clamps width to 100%", () => {
+    const { container } = render(
+      <ScoreBar {...defaultProps} value={60} max={50} />,
+    );
+    const bar = container.querySelector(
+      `.${defaultProps.colorClass.replace("/", "\\/")}`,
+    );
+    expect(bar).toHaveStyle({ width: "100%" });
+  });
+
+  it("renders 0% width for value 0", () => {
+    const { container } = render(<ScoreBar {...defaultProps} value={0} />);
+    const bar = container.querySelector(
+      `.${defaultProps.colorClass.replace("/", "\\/")}`,
+    );
+    expect(bar).toHaveStyle({ width: "0%" });
+  });
+
+  it("applies the colorClass to the fill bar", () => {
+    const { container } = render(
+      <ScoreBar {...defaultProps} colorClass="bg-danger-500" />,
+    );
+    const bar = container.querySelector(".bg-danger-500");
+    expect(bar).toBeInTheDocument();
+  });
+
+  it("applies custom className", () => {
+    const { container } = render(
+      <ScoreBar {...defaultProps} className="mt-4" />,
+    );
+    expect(container.firstChild).toHaveClass("mt-4");
+  });
+
+  it("renders the label text as provided", () => {
+    render(<ScoreBar {...defaultProps} />);
+    const labelEl = screen.getByText("Activity Level");
+    expect(labelEl.tagName).toBe("SPAN");
+  });
+});

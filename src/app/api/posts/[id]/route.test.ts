@@ -69,6 +69,8 @@ describe("GET /api/posts/[id]", () => {
         published_at: "2024-01-01",
         score: 40,
         attention_level: "low",
+        canonical_url: "https://example.com/2",
+        dev_url: "https://dev.to/older",
       },
     ];
     buildChain({ data: article, error: null }, { data: recent, error: null });
@@ -135,6 +137,8 @@ describe("GET /api/posts/[id]", () => {
       reactions: 10,
       comments: 3,
       published_at: "2024-06-01T00:00:00Z",
+      canonical_url: "https://example.com/77",
+      dev_url: "https://dev.to/testing",
     };
     buildChain({ data: article, error: null }, { data: [], error: null });
 
@@ -299,6 +303,20 @@ describe("GET /api/posts/[id]", () => {
     // The outer try/catch wraps Supabase calls and returns a structured 500.
     expect(res.status).toBe(500);
     expect(json.error).toBe("Client uninitialized");
+  });
+
+  it("returns 500 with 'Unknown error' when catch receives a non-Error value", async () => {
+    const nonError: unknown = 42;
+    (supabase.from as Mock).mockImplementation(() => {
+      throw nonError;
+    });
+
+    const req = new NextRequest("http://localhost:3000/api/posts/1");
+    const res = await GET(req, makeParams("1"));
+    const json = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(json.error).toBe("Unknown error");
   });
 
   // ── Boundary / numeric edge cases ─────────────────────────────────────────

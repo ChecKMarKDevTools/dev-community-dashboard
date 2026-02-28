@@ -1,6 +1,8 @@
 # Forem Community Observability Dashboard
 
-A moderation intelligence dashboard for [Forem](https://forem.com/) communities (dev.to and self-hosted instances). It ingests the latest posts via the public Forem API, scores each one against behavioral, audience, and pattern heuristics, and persists the results in Supabase so community managers can surface high-attention content at a glance.
+A signal-surfacing tool for [Forem](https://forem.com/) communities (dev.to and self-hosted instances). It ingests the latest posts via the public Forem API, classifies each one into attention categories (High Activity, Active Conversation, Community Waiting, Potential Rule Issue, Routine Discussion), and persists the results in Supabase so community helpers can see where conversations need a human eye.
+
+This is **not** a moderation tool or a scorecard. It is designed to help helpers know where to look.
 
 **Production:** https://forem-signal.checkmarkdevtools.dev _(Cloud Run — deployed post-initial-release)_
 
@@ -33,38 +35,40 @@ graph TB
 
 ### Background Sync Flow
 
-Triggered by the GitHub Actions cron or `workflow_dispatch`. Each run fetches up to 100 articles, scores them, and upserts results.
+Triggered by the GitHub Actions cron or `workflow_dispatch`. Each run fetches up to 200 articles (2 pages), filters to the 2-72h window, light-scores and shortlists top candidates, deep-fetches comments, classifies into categories, and upserts results.
 
 ```mermaid
 sequenceDiagram
   participant GHA as GitHub Actions
   participant Cron as POST /api/cron
+  participant Sync as syncArticles
   participant FC as ForemClient
-  participant Score as evaluatePriority
   participant SB as Supabase
 
   GHA->>Cron: POST (Authorization: Bearer)
-  Cron->>FC: getLatestArticles(page=1, per_page=100)
-  FC-->>Cron: ForemArticle[]
+  Cron->>Sync: syncArticles(5)
+  Sync->>FC: getLatestArticles(page 1-2, 100 each)
+  FC-->>Sync: ForemArticle[] (up to 200)
+  Note over Sync: Filter 2-72h window, light-score, shortlist top N
 
-  loop For each article
-    Cron->>FC: getUserByUsername(author) [user cache]
-    FC-->>Cron: ForemUser | null
-    Cron->>FC: getComments(articleId)
-    FC-->>Cron: ForemComment[]
-    Cron->>Score: evaluatePriority(article, user, comments, recentPosts)
-    Score-->>Cron: ScoreBreakdown {total, behavior, audience, pattern, attention_level}
-    Cron->>SB: upsert users row (once per unique author per run)
-    Cron->>SB: upsert articles row (score, attention_level, explanations)
-    Cron->>SB: upsert commenters rows
+  loop For each shortlisted article
+    Sync->>FC: getUserByUsername(author) [cached]
+    FC-->>Sync: ForemUser | null
+    Sync->>FC: getComments(articleId)
+    FC-->>Sync: ForemComment[]
+    Note over Sync: Compute metrics → classify category
+    Sync->>SB: upsert users row (once per unique author)
+    Sync->>SB: upsert articles row (score, category, explanations)
+    Sync->>SB: upsert commenters rows
   end
 
+  Sync-->>Cron: {synced, failed, errors[]}
   Cron-->>GHA: {success, synced, failed, errors[]}
 ```
 
 ### User Interaction Flow
 
-The dashboard is a read-only Next.js client that fetches pre-scored data from Supabase via the API layer.
+The dashboard is a read-only Next.js client that fetches pre-scored data from Supabase via the API layer. Post titles link directly to dev.to (or the canonical Forem URL) so helpers can jump straight into the conversation.
 
 ```mermaid
 sequenceDiagram
@@ -73,13 +77,14 @@ sequenceDiagram
   participant Posts as GET /api/posts
   participant Detail as GET /api/posts/:id
   participant SB as Supabase
+  participant F as dev.to / Forem
 
   U->>D: Open dashboard
   D->>Posts: fetch()
   Posts->>SB: SELECT articles ORDER BY score DESC LIMIT 100
   SB-->>Posts: scored article rows
   Posts-->>D: article list
-  D-->>U: Ranked list with attention badges (low / medium / high)
+  D-->>U: Ranked list with category badges (High Activity, Active Conversation, etc.)
 
   U->>D: Click a post
   D->>Detail: fetch(/api/posts/42)
@@ -87,27 +92,60 @@ sequenceDiagram
   Detail->>SB: SELECT 5 most recent posts by same author
   SB-->>Detail: article + recent_posts[]
   Detail-->>D: PostDetails
-  D-->>U: Detail panel (score, explanations, recent posts by author)
+  D-->>U: Detail panel (signals, discussion state, thread momentum, recent posts by author)
+
+  U->>F: Click post title to open on dev.to / Forem
+  Note over U,F: Helper reads the thread and decides how to engage
 ```
 
 ---
 
 ## Scoring Engine
 
-Each article is scored at sync time (not at read time) across three independent dimensions. The total is capped at 100 and persisted alongside the article.
+Each article is classified at sync time (not at read time) into one of four attention categories, or `NORMAL` if no thresholds are met. The pipeline first computes common metrics, then applies category-specific IF logic.
 
-| Dimension    | Signal                                                        | Points |
-| ------------ | ------------------------------------------------------------- | ------ |
-| **Behavior** | Account age < 7 days                                          | +15    |
-|              | Off-site canonical URL                                        | +10    |
-|              | > 2 posts within 24 h by same author                          | +9     |
-| **Audience** | ≤ 2 unique commenters with > 3 total comments                 | +15    |
-|              | Any comment engagement (baseline)                             | +5     |
-|              | > 20 reactions with zero comments                             | +15    |
-| **Pattern**  | Repeated tag combination across author's recent posts         | +15    |
-|              | Uniform publish intervals (< 5 min variance across ≥ 3 posts) | +18    |
+### Common Metrics
 
-**Attention level thresholds:** `low` < 40 · `medium` 40–69 · `high` ≥ 70
+| Metric               | Formula                                                                |
+| -------------------- | ---------------------------------------------------------------------- |
+| `word_count`         | `reading_time_minutes * 200` (estimated)                               |
+| `comments_per_hour`  | `comment_count / max(1, time_since_post / 60)`                         |
+| `avg_comment_length` | `total_comment_words / max(1, comment_count)`                          |
+| `reply_ratio`        | `replies_with_parent / max(1, comment_count)`                          |
+| `author_post_freq`   | Posts by the same author in the last 24 h                              |
+| `effort`             | `log2(word_count + 1) + unique_commenters + (avg_comment_length / 40)` |
+| `exposure`           | `max(1, reactions + comments)`                                         |
+| `attention_delta`    | `effort - log2(exposure + 1)`                                          |
+
+### Categories
+
+| Category                 | Dashboard Label      | Key Conditions                                                                                                                  |
+| ------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| **NEEDS_RESPONSE**       | Community Waiting    | `time_since_post >= 30 min` AND `support_score >= 3` (first post, no reactions, no comments, help words)                        |
+| **POSSIBLY_LOW_QUALITY** | Potential Rule Issue | `risk_score >= 4` (high post freq, short body, no engagement, author promo keywords, repeated links, minus engagement credit)   |
+| **NEEDS_REVIEW**         | High Activity        | `comments >= 6` AND `heat_score >= 5` AND `reactions / comments < 1.2`                                                          |
+| **BOOST_VISIBILITY**     | Active Conversation  | `word_count >= 600` AND `unique_commenters >= 2` AND `avg_comment_length >= 18` AND `reactions <= 5` AND `attention_delta >= 3` |
+| **NORMAL**               | Routine Discussion   | Default when no category thresholds are met; also forced for `devteam` org posts (weekly threads, challenges)                   |
+
+### Sub-Scores
+
+| Sub-Score       | Components                                                                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `heat_score`    | `comments_per_hour + reply_ratio * 3 + alternating_pairs + sentiment_flips`                                                                |
+| `risk_score`    | `max(0, freq_penalty + (word_count < 120 ? 2 : 0) + (no engagement ? 2 : 0) + author_promo_keywords + repeated_links - engagement_credit)` |
+| `freq_penalty`  | `max(0, author_post_freq - 2) * 2` (only penalizes > 2 posts/day)                                                                          |
+| `engage_credit` | `(reactions >= 10 ? 2 : 0) + (unique_commenters >= 5 ? 1 : 0)` (offsets risk for high-traction posts)                                      |
+| `support_score` | `(first_post ? 2 : 0) + (no reactions ? 1 : 0) + (no comments ? 2 : 0) + help_keywords`                                                    |
+
+### Dashboard Signal Display
+
+The detail panel groups information into three sections. These are display-level labels, not scoring inputs.
+
+| Section                  | Shows                                                                                                    |
+| ------------------------ | -------------------------------------------------------------------------------------------------------- |
+| **Conversation Signals** | Per-thread metrics: Word Count, Participants, Effort Score, Attention Shift (values rounded to integers) |
+| **Discussion State**     | Activity Level, Policy Risk, and Constructiveness with qualitative labels (Low / Moderate / High)        |
+| **Thread Momentum**      | A one-line observation about the current pace of the conversation                                        |
 
 ---
 
@@ -151,11 +189,11 @@ pnpm build            # type-check + Next.js production build
 
 | Guardrail             | Where                                | What it does                                                                                             |
 | --------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| Bearer auth           | `/api/cron`, `/api/admin/seed`       | Returns 401 if `Authorization: Bearer <CRON_SECRET>` header is absent or wrong                           |
+| Bearer auth           | `/api/cron`, `/api/admin/seed`       | Extracts and trims token from `Authorization: Bearer <CRON_SECRET>`; returns 401 if absent/wrong         |
 | Row-level security    | Supabase (`0001_rls_policies.sql`)   | Anon role: `articles` and `commenters` are SELECT-only; `users` has no anon policy (deny-all by default) |
 | Input validation      | `/api/posts/[id]`, `/api/admin/seed` | `Number()` + `Number.isInteger()` — floats (`"1.5"`) and alpha strings (`"1abc"`) return 400             |
 | Rate-limit resilience | `ForemClient`                        | Exponential-backoff retry on HTTP 429, honours `Retry-After` header                                      |
-| Server-only secrets   | `src/lib/supabase.ts`                | `SUPABASE_SECRET_KEY` only used server-side; never exposed in client bundles                             |
+| Server-only secrets   | `src/lib/supabase.ts`                | Validates both env vars are set at request time; `SUPABASE_SECRET_KEY` never exposed in client bundles   |
 
 ---
 
@@ -165,7 +203,7 @@ pnpm build            # type-check + Next.js production build
 | ------ | ----------------- | ------ | ------------------------------------------------------------------ |
 | `GET`  | `/api/posts`      | none   | Scored article list, ordered by score desc, limit 100              |
 | `GET`  | `/api/posts/:id`  | none   | Article detail + 5 most recent posts by same author                |
-| `POST` | `/api/cron`       | Bearer | Sync latest 100 articles from Forem (page 1)                       |
+| `POST` | `/api/cron`       | Bearer | Sync latest articles from Forem (200 articles, 2 pages)            |
 | `POST` | `/api/admin/seed` | Bearer | Back-fill articles; body `{ "days": N }` (integer 1–90, default 3) |
 
 ---
@@ -181,6 +219,25 @@ gcloud run deploy forem-community-dashboard \
 ```
 
 Once deployed, set `APP_URL` as a **GitHub repository variable** (not a secret — it is a public URL) and `CRON_SECRET` as a **GitHub secret** so the cron workflow (`.github/workflows/cron.yml`) can reach the live endpoint. Uncomment the `schedule` trigger in that file to enable the 15-minute cadence.
+
+---
+
+## Contributing
+
+This project is built for community helpers — people who want to know where to look, not what to do. The dashboard surfaces conversations that may need a human eye; it does not assign blame, issue warnings, or score individuals.
+
+If you are contributing, here is where things live:
+
+| Area                                                    | Where to look                                                  |
+| ------------------------------------------------------- | -------------------------------------------------------------- |
+| Scoring & classification logic                          | `src/lib/sync.ts`                                              |
+| Sync pipeline (Forem → Supabase)                        | `src/lib/sync.ts`                                              |
+| Dashboard UI components                                 | `src/components/Dashboard.tsx` and `src/components/ui/`        |
+| Display helpers (labels, narratives, signal formatting) | `src/lib/dashboard-helpers.ts`                                 |
+| API routes                                              | `src/app/api/`                                                 |
+| Tests                                                   | Co-located `*.test.ts` / `*.test.tsx` files next to the source |
+| CI checks                                               | `.github/workflows/ci.yml` (single workflow for all checks)    |
+| Project conventions                                     | `AGENTS.md`                                                    |
 
 ---
 

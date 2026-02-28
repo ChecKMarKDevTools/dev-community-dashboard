@@ -2,73 +2,41 @@
 
 import * as React from "react";
 import {
-  Card,
-  CardContent,
   CardHeader,
   CardTitle,
   CardDescription,
+  CardContent,
 } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import {
-  AlertCircle,
-  ChevronRight,
-  Clock,
-  User,
-  MessageSquare,
-  Heart,
-} from "lucide-react";
+import { Spinner } from "@/components/ui/Spinner";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { SignalItem } from "@/components/ui/SignalItem";
+import { ScoreBar } from "@/components/ui/ScoreBar";
+import { PostMeta } from "@/components/ui/PostMeta";
+import { SectionCard } from "@/components/ui/SectionCard";
+import { QueueCard } from "@/components/ui/QueueCard";
+import { AlertCircle, ChevronRight, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-// Matches the DB `articles` table schema returned by /api/posts and /api/posts/[id].
-type Post = {
-  id: number;
-  title: string;
-  canonical_url: string;
-  score: number;
-  attention_level: "low" | "medium" | "high";
-  explanations: string[];
-  published_at: string;
-  author: string;
-  reactions: number;
-  comments: number;
-};
-
-// Subset returned for recent posts by /api/posts/[id] (includes canonical_url for linking).
-type RecentPost = {
-  id: number;
-  title: string;
-  canonical_url: string;
-  published_at: string;
-  score: number;
-  attention_level: "low" | "medium" | "high";
-};
-
-type PostDetails = Post & {
-  score_breakdown?: Record<string, number>;
-  recent_posts?: RecentPost[];
-};
-
-function getAttentionVariant(
-  level: string,
-): "destructive" | "warning" | "success" {
-  if (level === "high") return "destructive";
-  if (level === "medium") return "warning";
-  return "success";
-}
-
-function getRecentPostBadgeVariant(
-  level: string,
-): "destructive" | "warning" | "outline" {
-  if (level === "high") return "destructive";
-  if (level === "medium") return "warning";
-  return "outline";
-}
-
-function getScoreBarClass(value: number): string {
-  if (value > 20) return "bg-danger-500";
-  if (value > 10) return "bg-warning-500";
-  return "bg-brand-500";
-}
+import {
+  getAttentionVariant,
+  getCategoryLabel,
+  getCategoryDisplayName,
+  getRecentPostBadgeVariant,
+  getScoreQualitativeLabel,
+  getScoreBarClass,
+  extractWordCount,
+  parseScoreBreakdown,
+  getScoreNarrative,
+  getBehaviorDescription,
+  getWhatsHappening,
+  getSignalName,
+  formatSignalDisplay,
+  computeAgeHours,
+  sortByAttentionPriority,
+  SIGNAL_TOOLTIPS,
+  SCORE_BREAKDOWN_SIGNALS,
+} from "@/lib/dashboard-helpers";
+import type { Post, PostDetails, RecentPost } from "@/types/dashboard";
 
 type DetailPanelProps = Readonly<{
   selectedPostId: number | null;
@@ -84,25 +52,13 @@ function DetailPanel({
   onBack,
 }: DetailPanelProps) {
   if (!selectedPostId) {
-    return (
-      <div className="text-brand-400 max-w-sm text-center">
-        <div className="bg-brand-100 mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full">
-          <MessageSquare className="text-brand-300 h-8 w-8" />
-        </div>
-        <p className="text-brand-700 text-lg font-medium">
-          Select a post to view details
-        </p>
-        <p className="mt-2 text-sm">
-          The detailed moderation breakdown will appear here.
-        </p>
-      </div>
-    );
+    return null;
   }
 
   if (detailsLoading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="border-brand-600 h-8 w-8 animate-spin rounded-full border-b-2"></div>
+        <Spinner />
       </div>
     );
   }
@@ -123,11 +79,11 @@ function DetailPanel({
       </div>
 
       <div className="border-brand-100 rounded-2xl border bg-white p-6 shadow-sm md:p-8">
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-          <div>
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
             <h2 className="text-brand-900 text-2xl leading-tight font-bold md:text-3xl">
               <a
-                href={postDetails.canonical_url}
+                href={postDetails.dev_url || postDetails.canonical_url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-brand-600 transition-colors hover:underline"
@@ -135,92 +91,54 @@ function DetailPanel({
                 {postDetails.title}
               </a>
             </h2>
-            <div className="text-brand-600 mt-4 flex flex-wrap items-center gap-4 text-sm">
-              <span className="bg-brand-50 flex items-center gap-1.5 rounded-full px-3 py-1.5 font-medium">
-                <User className="h-4 w-4" /> @{postDetails.author}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Clock className="h-4 w-4" />{" "}
-                {new Date(postDetails.published_at).toLocaleString()}
-              </span>
-            </div>
+            <PostMeta
+              author={postDetails.author}
+              date={postDetails.published_at}
+              variant="full"
+              className="mt-4"
+            />
           </div>
           <Badge
             variant={getAttentionVariant(postDetails.attention_level)}
-            className="px-3 py-1 text-sm"
+            className="shrink-0 px-3 py-1 text-sm"
           >
-            {postDetails.attention_level.toUpperCase()} PRIORITY
+            {getCategoryLabel(postDetails.attention_level)}
           </Badge>
         </div>
 
-        <div className="border-brand-100 mb-8 flex items-center gap-6 border-y py-4">
-          <div className="text-brand-700 flex items-center gap-2">
-            <Heart className="text-danger-500 h-5 w-5" />{" "}
-            <span className="font-semibold">{postDetails.reactions}</span>
-          </div>
-          <div className="text-brand-700 flex items-center gap-2">
-            <MessageSquare className="text-brand-500 h-5 w-5" />{" "}
-            <span className="font-semibold">{postDetails.comments}</span>
-          </div>
-        </div>
+        <p className="text-brand-500 border-brand-100 mb-8 border-y py-4 text-sm">
+          {postDetails.reactions} reactions &middot; {postDetails.comments}{" "}
+          comments &middot; ~{extractWordCount(postDetails.explanations)} words
+          &middot; {computeAgeHours(postDetails.published_at)}h old
+        </p>
 
         <div className="grid gap-6 md:grid-cols-2">
-          {/* Score Breakdown */}
-          <Card className="border-brand-100 bg-brand-50/30">
+          {/* Conversation Signals — LEFT/first */}
+          <SectionCard>
             <CardHeader className="pb-3">
               <CardTitle className="text-brand-800 text-lg">
-                Score Breakdown
+                Conversation Signals
               </CardTitle>
               <CardDescription>
-                Total calculated score: {postDetails.score}
+                Signals computed from the conversation
               </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {Object.entries(postDetails.score_breakdown || {}).map(
-                ([category, value]) => (
-                  <div key={category} className="flex flex-col gap-1.5">
-                    <div className="text-brand-700 flex justify-between text-sm font-medium">
-                      <span className="capitalize">{category} Score</span>
-                      <span>{value} pts</span>
-                    </div>
-                    <div className="bg-brand-100 h-2 w-full overflow-hidden rounded-full">
-                      <div
-                        className={cn(
-                          "h-full rounded-full transition-all",
-                          getScoreBarClass(value),
-                        )}
-                        style={{
-                          width: `${Math.min((value / 50) * 100, 100)}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                ),
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Context & Flags */}
-          <Card className="border-brand-100">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-brand-800 text-lg">
-                Investigation Context
-              </CardTitle>
-              <CardDescription>Flags triggered by the system</CardDescription>
             </CardHeader>
             <CardContent>
               {postDetails.explanations &&
               postDetails.explanations.length > 0 ? (
                 <ul className="space-y-3">
-                  {postDetails.explanations.map((exp: string) => (
-                    <li
-                      key={exp}
-                      className="text-brand-700 bg-brand-50 border-brand-100 flex gap-3 rounded-lg border p-3 text-sm"
-                    >
-                      <AlertCircle className="text-brand-500 mt-0.5 h-4 w-4 shrink-0" />
-                      <span className="leading-snug">{exp}</span>
-                    </li>
-                  ))}
+                  {postDetails.explanations
+                    .filter(
+                      (exp) => !SCORE_BREAKDOWN_SIGNALS.has(getSignalName(exp)),
+                    )
+                    .map((exp: string) => (
+                      <SignalItem
+                        key={exp}
+                        tooltip={SIGNAL_TOOLTIPS[getSignalName(exp)]}
+                      >
+                        {formatSignalDisplay(exp)}
+                      </SignalItem>
+                    ))}
                 </ul>
               ) : (
                 <p className="text-brand-500 text-sm italic">
@@ -229,8 +147,49 @@ function DetailPanel({
                 </p>
               )}
             </CardContent>
-          </Card>
+          </SectionCard>
+
+          {/* Discussion State — RIGHT/second */}
+          <SectionCard variant="muted">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-brand-800 text-lg">
+                Discussion State
+              </CardTitle>
+              <CardDescription>
+                Observed patterns in the current window
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {Object.entries(
+                parseScoreBreakdown(postDetails.explanations),
+              ).map(([category, value]) => (
+                <ScoreBar
+                  key={category}
+                  label={getCategoryDisplayName(category)}
+                  sublabel={getScoreQualitativeLabel(category, value)}
+                  description={getScoreNarrative(category, value)}
+                  value={value}
+                  max={50}
+                  colorClass={getScoreBarClass(value)}
+                />
+              ))}
+            </CardContent>
+          </SectionCard>
         </div>
+
+        {/* Thread Momentum — full-width card below the grid */}
+        <SectionCard variant="muted" className="mt-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-brand-800 text-lg">
+              Thread Momentum
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-brand-700 text-sm leading-relaxed">
+              {getWhatsHappening(postDetails.explanations)}
+            </p>
+          </CardContent>
+        </SectionCard>
       </div>
 
       {/* Author History */}
@@ -241,14 +200,14 @@ function DetailPanel({
           </h3>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {postDetails.recent_posts.map((rp: RecentPost) => (
-              <Card
+              <SectionCard
                 key={rp.id}
-                className="border-brand-100 hover:border-brand-300 transition-colors"
+                className="hover:border-brand-300 transition-colors"
               >
                 <CardHeader className="p-4 pb-2">
                   <CardTitle className="text-brand-800 line-clamp-2 text-base">
                     <a
-                      href={rp.canonical_url}
+                      href={rp.dev_url || rp.canonical_url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="hover:underline"
@@ -266,11 +225,11 @@ function DetailPanel({
                       variant={getRecentPostBadgeVariant(rp.attention_level)}
                       className="px-2 py-0 text-[10px]"
                     >
-                      SCORE: {Math.round(rp.score)}
+                      {getCategoryLabel(rp.attention_level)}
                     </Badge>
                   </div>
                 </CardContent>
-              </Card>
+              </SectionCard>
             ))}
           </div>
         </div>
@@ -297,7 +256,7 @@ export function Dashboard() {
         return res.json();
       })
       .then((data: Post[]) => {
-        setPosts(data);
+        setPosts(sortByAttentionPriority(data));
         setLoading(false);
       })
       .catch((err) => {
@@ -324,12 +283,10 @@ export function Dashboard() {
   if (loading) {
     return (
       <div className="bg-brand-50 flex min-h-screen items-center justify-center">
-        <div className="border-brand-600 h-12 w-12 animate-spin rounded-full border-b-2"></div>
+        <Spinner size="lg" />
       </div>
     );
   }
-
-  const showRightPanel = selectedPostId !== null || window.innerWidth >= 768;
 
   return (
     <div className="bg-brand-50 flex h-screen overflow-hidden">
@@ -341,71 +298,64 @@ export function Dashboard() {
         )}
       >
         <div className="border-brand-100 border-b bg-white p-6">
-          <h1 className="text-brand-900 text-2xl font-bold tracking-tight">
-            Community Queue
-          </h1>
-          <p className="text-brand-500 mt-1 text-sm">
-            Posts requiring moderation attention.
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-brand-900 text-2xl font-bold tracking-tight">
+                Attention Queue
+              </h1>
+              <p className="text-brand-500 mt-1 text-sm">
+                Conversations surfaced for review.
+              </p>
+            </div>
+            <a
+              href="https://github.com/ChecKMarKDevTools/forem-community-dashboard/issues"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="border-brand-200 text-brand-600 hover:bg-brand-50 hover:text-brand-800 inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors"
+            >
+              Feedback <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
         </div>
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
           {posts.map((post) => (
-            <Card
+            <QueueCard
               key={post.id}
-              className={cn(
-                "border-brand-100 hover:border-brand-300 cursor-pointer transition-all duration-200 hover:shadow-md",
-                selectedPostId === post.id
-                  ? "ring-brand-500 bg-brand-50 ring-2"
-                  : "bg-white",
-              )}
+              selected={selectedPostId === post.id}
               onClick={() => setSelectedPostId(post.id)}
             >
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <h3 className="text-brand-900 truncate font-semibold">
-                      {post.title}
-                    </h3>
-                    <div className="text-brand-500 mt-2 flex items-center gap-2 text-xs">
-                      <span className="flex items-center gap-1">
-                        <User className="h-3 w-3" /> @{post.author}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />{" "}
-                        {new Date(post.published_at).toLocaleDateString()}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-2">
-                    <Badge variant={getAttentionVariant(post.attention_level)}>
-                      {post.attention_level.toUpperCase()}
-                    </Badge>
-                    <span className="text-brand-600 text-xs font-medium">
-                      Score: {post.score}
-                    </span>
-                  </div>
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-brand-900 truncate font-semibold">
+                    {post.title}
+                  </h3>
+                  <PostMeta
+                    author={post.author}
+                    date={post.published_at}
+                    className="mt-2"
+                  />
                 </div>
-              </CardContent>
-            </Card>
+                <Badge
+                  variant={getAttentionVariant(post.attention_level)}
+                  className="shrink-0"
+                >
+                  {getBehaviorDescription(post)}
+                </Badge>
+              </div>
+            </QueueCard>
           ))}
           {posts.length === 0 && (
-            <div className="text-brand-400 py-12 text-center">
-              <AlertCircle className="mx-auto mb-3 h-8 w-8 opacity-50" />
-              <p>No posts found. Waiting for data sync.</p>
-            </div>
+            <EmptyState
+              icon={AlertCircle}
+              title="No posts found. Waiting for data sync."
+            />
           )}
         </div>
       </div>
 
-      {/* Right panel: Post Details */}
-      {showRightPanel && (
-        <div
-          className={cn(
-            "bg-brand-50/50 relative flex-1 overflow-y-auto p-6 md:p-8",
-            selectedPostId === null &&
-              "hidden items-center justify-center md:flex",
-          )}
-        >
+      {/* Right panel: Post Details — only rendered when a post is selected */}
+      {selectedPostId !== null && (
+        <div className="bg-brand-50/50 relative flex-1 overflow-y-auto p-6 md:p-8">
           <DetailPanel
             selectedPostId={selectedPostId}
             detailsLoading={detailsLoading}

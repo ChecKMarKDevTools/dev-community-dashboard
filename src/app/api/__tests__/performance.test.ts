@@ -13,13 +13,7 @@
 import { GET as getPosts } from "../posts/route";
 import { GET as getPostById } from "../posts/[id]/route";
 import { POST as postCron } from "../cron/route";
-import { evaluatePriority } from "@/lib/scoring";
-import {
-  ForemClient,
-  type ForemArticle,
-  type ForemUser,
-  type ForemComment,
-} from "@/lib/forem";
+import { ForemClient, type ForemArticle } from "@/lib/forem";
 import { supabase } from "@/lib/supabase";
 import { NextRequest } from "next/server";
 import { vi, type Mock } from "vitest";
@@ -50,7 +44,7 @@ const BUDGET_GET_POST_BY_ID_SINGLE = 50; // One cold call to GET /api/posts/[id]
 const BUDGET_GET_POSTS_P99 = 20; // p99 across 100 warm calls
 const BUDGET_GET_POST_BY_ID_P99 = 20; // p99 across 100 warm calls
 const BUDGET_CRON_100_ARTICLES = 500; // Full cron run with 100 articles
-const BUDGET_SCORING_1000_CALLS = 100; // 1000 evaluatePriority calls (pure compute)
+// Scoring is now inline in sync.ts — no standalone evaluatePriority to benchmark
 
 // ---------------------------------------------------------------------------
 // Fixture factories
@@ -94,22 +88,6 @@ function makeArticle(id: number = 1): ForemArticle {
   };
 }
 
-function makeUser(username: string): ForemUser {
-  return {
-    type_of: "user",
-    id: 1,
-    username,
-    name: username,
-    summary: "",
-    twitter_username: null,
-    github_username: null,
-    website_url: null,
-    location: null,
-    joined_at: "2020-01-01T00:00:00Z",
-    profile_image: "",
-  };
-}
-
 function buildSupabaseListMock(count: number) {
   const data = Array.from({ length: count }, (_, i) => ({
     id: i + 1,
@@ -119,9 +97,11 @@ function buildSupabaseListMock(count: number) {
     attention_level: "low",
   }));
   const select = vi.fn().mockReturnThis();
+  const gte = vi.fn().mockReturnThis();
+  const lte = vi.fn().mockReturnThis();
   const order = vi.fn().mockReturnThis();
   const limit = vi.fn().mockResolvedValue({ data, error: null });
-  (supabase.from as Mock).mockReturnValue({ select, order, limit });
+  (supabase.from as Mock).mockReturnValue({ select, gte, lte, order, limit });
 }
 
 function buildSupabaseDetailMock(id: number) {
@@ -337,90 +317,6 @@ describe.skipIf(!TIMING_BUDGETS_ENABLED)("Performance: POST /api/cron", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Scoring function performance (pure compute — no I/O)
-// ---------------------------------------------------------------------------
-
-describe.skipIf(!TIMING_BUDGETS_ENABLED)(
-  "Performance: evaluatePriority (pure compute)",
-  () => {
-    const article = makeArticle(1);
-    const user = makeUser("benchuser");
-    const comments: ForemComment[] = [];
-    const recentPosts: ForemArticle[] = Array.from({ length: 10 }, (_, i) =>
-      makeArticle(i + 2),
-    );
-
-    it(`processes 1000 calls in under ${BUDGET_SCORING_1000_CALLS}ms`, () => {
-      const start = performance.now();
-
-      for (let i = 0; i < 1000; i++) {
-        evaluatePriority(article, user, comments, recentPosts);
-      }
-
-      const elapsed = performance.now() - start;
-      expect(elapsed).toBeLessThan(BUDGET_SCORING_1000_CALLS);
-    });
-
-    it("throughput is at least 5000 calls/second", () => {
-      const iterations = 5000;
-      const start = performance.now();
-
-      for (let i = 0; i < iterations; i++) {
-        evaluatePriority(article, null, comments, []);
-      }
-
-      const elapsedSec = (performance.now() - start) / 1000;
-      const callsPerSec = iterations / elapsedSec;
-
-      expect(callsPerSec).toBeGreaterThan(5000);
-    });
-
-    it("handles maximum-complexity input (all score paths active) within budget", () => {
-      const complexArticle: ForemArticle = {
-        ...makeArticle(999),
-        canonical_url: "https://external.example.com/spam",
-        public_reactions_count: 30,
-      };
-      const newUser: ForemUser = {
-        ...makeUser("spammer"),
-        joined_at: new Date().toISOString(), // < 7 days old → +15 behavior
-      };
-      const heavyComments: ForemComment[] = Array.from(
-        { length: 10 },
-        (_, i) => ({
-          type_of: "comment",
-          id_code: `c${i}`,
-          created_at: "2024-01-01T00:00:00Z",
-          body_html: "<p>spam</p>",
-          user: {
-            name: "u1",
-            username: "u1",
-            twitter_username: null,
-            github_username: null,
-            website_url: null,
-            profile_image: "",
-            profile_image_90: "",
-          },
-          children: [],
-        }),
-      );
-      const uniformPosts: ForemArticle[] = Array.from(
-        { length: 5 },
-        (_, i) => ({
-          ...makeArticle(i + 1),
-          published_at: new Date(Date.now() - i * 3600000).toISOString(), // 1h apart = uniform
-          tag_list: ["javascript", "webdev"], // same tags = +15 pattern
-        }),
-      );
-
-      const start = performance.now();
-      for (let i = 0; i < 1000; i++) {
-        evaluatePriority(complexArticle, newUser, heavyComments, uniformPosts);
-      }
-      const elapsed = performance.now() - start;
-
-      expect(elapsed).toBeLessThan(BUDGET_SCORING_1000_CALLS);
-    });
-  },
-);
+// Scoring function performance tests removed — evaluatePriority is now inline
+// in sync.ts and not exported as a standalone function. Scoring perf is covered
+// by the cron performance suite above (sync includes scoring in its pipeline).
