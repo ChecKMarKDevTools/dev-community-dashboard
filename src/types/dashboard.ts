@@ -1,4 +1,4 @@
-// Category strings stored in DB `articles.attention_level` by the scoring pipeline.
+// Category strings stored in DB `articles.attention_level` by the classification pipeline.
 export type AttentionCategory =
   | "NEEDS_RESPONSE"
   | "POSSIBLY_LOW_QUALITY"
@@ -25,13 +25,13 @@ export type RecentPost = {
   id: number;
   title: string;
   canonical_url: string;
-  dev_url: string;
+  dev_url?: string | null;
   published_at: string;
   score: number;
   attention_level: AttentionCategory;
 };
 
 export type PostDetails = Post & {
-  dev_url: string;
+  dev_url?: string | null;
   recent_posts?: RecentPost[];
 };

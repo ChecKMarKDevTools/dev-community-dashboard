@@ -5,6 +5,7 @@ import {
   ForemClient,
 } from "@/lib/forem";
 import { supabase } from "@/lib/supabase";
+import type { AttentionCategory } from "@/types/dashboard";
 
 export interface SyncResult {
   synced: number;
@@ -242,7 +243,9 @@ interface ClassificationInput {
 }
 
 /** Classify an article into an attention category */
-function classifyArticle(input: Readonly<ClassificationInput>): string {
+function classifyArticle(
+  input: Readonly<ClassificationInput>,
+): AttentionCategory {
   // Official devteam org posts (weekly threads, challenges) skip classification
   if (input.article.organization?.slug === "devteam") return "NORMAL";
 
@@ -432,12 +435,13 @@ async function deepScoreAndPersist(
 
   // Save commenters for simple integrity tracking mapping
   for (const commenter of Array.from(metrics.uniqueCommenters)) {
-    await supabase
+    const { error: commenterError } = await supabase
       .from("commenters")
       .upsert(
         { article_id: article.id, username: commenter },
         { onConflict: "article_id,username" },
       );
+    if (commenterError) throw new Error(commenterError.message);
   }
 }
 
