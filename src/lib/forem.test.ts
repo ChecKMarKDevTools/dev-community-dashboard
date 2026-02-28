@@ -156,6 +156,11 @@ describe("ForemClient — API key header", () => {
 // Rate-limit retry (429 → exponential backoff)
 // ---------------------------------------------------------------------------
 
+/** Helper: mock headers object that returns null for Retry-After. */
+function noRetryAfterHeaders() {
+  return { get: () => null };
+}
+
 describe("ForemClient — 429 retry", () => {
   // Fake timers prevent real delays from slowing the suite.
   beforeEach(() => {
@@ -167,11 +172,6 @@ describe("ForemClient — 429 retry", () => {
     vi.clearAllMocks();
     vi.useRealTimers();
   });
-
-  /** Helper: mock headers object that returns null for Retry-After. */
-  function noRetryAfterHeaders() {
-    return { get: () => null };
-  }
 
   it("retries once on 429 and returns the successful second response", async () => {
     const mockData = [{ id: 1, title: "Test" }];

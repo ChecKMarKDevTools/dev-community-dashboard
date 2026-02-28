@@ -98,7 +98,7 @@ async function fetchWithRetry(
     const retryAfterHeader = res.headers.get("retry-after");
     const retryAfterSec = retryAfterHeader
       ? Number.parseInt(retryAfterHeader, 10)
-      : NaN;
+      : Number.NaN;
     const delayMs = Number.isNaN(retryAfterSec)
       ? RETRY_BASE_DELAY_MS * 2 ** attempt
       : retryAfterSec * 1000;

@@ -96,16 +96,16 @@ sequenceDiagram
 
 Each article is scored at sync time (not at read time) across three independent dimensions. The total is capped at 100 and persisted alongside the article.
 
-| Dimension | Signal | Points |
-|-----------|--------|--------|
-| **Behavior** | Account age < 7 days | +15 |
-| | Off-site canonical URL | +10 |
-| | > 2 posts within 24 h by same author | +9 |
-| **Audience** | ≤ 2 unique commenters with > 3 total comments | +15 |
-| | Any comment engagement (baseline) | +5 |
-| | > 20 reactions with zero comments | +15 |
-| **Pattern** | Repeated tag combination across author's recent posts | +15 |
-| | Uniform publish intervals (< 5 min variance across ≥ 3 posts) | +18 |
+| Dimension    | Signal                                                        | Points |
+| ------------ | ------------------------------------------------------------- | ------ |
+| **Behavior** | Account age < 7 days                                          | +15    |
+|              | Off-site canonical URL                                        | +10    |
+|              | > 2 posts within 24 h by same author                          | +9     |
+| **Audience** | ≤ 2 unique commenters with > 3 total comments                 | +15    |
+|              | Any comment engagement (baseline)                             | +5     |
+|              | > 20 reactions with zero comments                             | +15    |
+| **Pattern**  | Repeated tag combination across author's recent posts         | +15    |
+|              | Uniform publish intervals (< 5 min variance across ≥ 3 posts) | +18    |
 
 **Attention level thresholds:** `low` < 40 · `medium` 40–69 · `high` ≥ 70
 
@@ -129,12 +129,12 @@ supabase db push
 
 Create a `.env` file in the project root with the following:
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
-| `SUPABASE_SECRET_KEY` | Yes | Server-only key; bypasses RLS for sync writes |
-| `CRON_SECRET` | Yes | Bearer token for `/api/cron` and `/api/admin/seed` |
-| `FOREM_API_KEY` | No | Optional; raises Forem API rate limits |
+| Variable                   | Required | Description                                        |
+| -------------------------- | -------- | -------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes      | Supabase project URL                               |
+| `SUPABASE_SECRET_KEY`      | Yes      | Server-only key; bypasses RLS for sync writes      |
+| `CRON_SECRET`              | Yes      | Bearer token for `/api/cron` and `/api/admin/seed` |
+| `FOREM_API_KEY`            | No       | Optional; raises Forem API rate limits             |
 
 > `SUPABASE_SECRET_KEY` is intentionally **not** prefixed with `NEXT_PUBLIC_` — it is never sent to the browser.
 
@@ -149,23 +149,23 @@ pnpm build            # type-check + Next.js production build
 
 ### Guardrails
 
-| Guardrail | Where | What it does |
-|-----------|-------|--------------|
-| Bearer auth | `/api/cron`, `/api/admin/seed` | Returns 401 if `Authorization: Bearer <CRON_SECRET>` header is absent or wrong |
-| Row-level security | Supabase (`0001_rls_policies.sql`) | Anon role: `articles` and `commenters` are SELECT-only; `users` has no anon policy (deny-all by default) |
-| Input validation | `/api/posts/[id]`, `/api/admin/seed` | `Number()` + `Number.isInteger()` — floats (`"1.5"`) and alpha strings (`"1abc"`) return 400 |
-| Rate-limit resilience | `ForemClient` | Exponential-backoff retry on HTTP 429, honours `Retry-After` header |
-| Server-only secrets | `src/lib/supabase.ts` | `SUPABASE_SECRET_KEY` only used server-side; never exposed in client bundles |
+| Guardrail             | Where                                | What it does                                                                                             |
+| --------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| Bearer auth           | `/api/cron`, `/api/admin/seed`       | Returns 401 if `Authorization: Bearer <CRON_SECRET>` header is absent or wrong                           |
+| Row-level security    | Supabase (`0001_rls_policies.sql`)   | Anon role: `articles` and `commenters` are SELECT-only; `users` has no anon policy (deny-all by default) |
+| Input validation      | `/api/posts/[id]`, `/api/admin/seed` | `Number()` + `Number.isInteger()` — floats (`"1.5"`) and alpha strings (`"1abc"`) return 400             |
+| Rate-limit resilience | `ForemClient`                        | Exponential-backoff retry on HTTP 429, honours `Retry-After` header                                      |
+| Server-only secrets   | `src/lib/supabase.ts`                | `SUPABASE_SECRET_KEY` only used server-side; never exposed in client bundles                             |
 
 ---
 
 ## API Reference
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `GET` | `/api/posts` | none | Scored article list, ordered by score desc, limit 100 |
-| `GET` | `/api/posts/:id` | none | Article detail + 5 most recent posts by same author |
-| `POST` | `/api/cron` | Bearer | Sync latest 100 articles from Forem (page 1) |
+| Method | Path              | Auth   | Description                                                        |
+| ------ | ----------------- | ------ | ------------------------------------------------------------------ |
+| `GET`  | `/api/posts`      | none   | Scored article list, ordered by score desc, limit 100              |
+| `GET`  | `/api/posts/:id`  | none   | Article detail + 5 most recent posts by same author                |
+| `POST` | `/api/cron`       | Bearer | Sync latest 100 articles from Forem (page 1)                       |
 | `POST` | `/api/admin/seed` | Bearer | Back-fill articles; body `{ "days": N }` (integer 1–90, default 3) |
 
 ---
