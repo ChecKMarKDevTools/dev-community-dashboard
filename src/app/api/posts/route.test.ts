@@ -63,7 +63,7 @@ describe("GET /api/posts", () => {
     await GET();
 
     expect(mockSelect).toHaveBeenCalledWith(
-      "id, title, author, score, attention_level, canonical_url, url, published_at, reactions, comments, explanations, age_hours, word_count",
+      "id, title, author, score, attention_level, canonical_url, dev_url, published_at, reactions, comments, explanations",
     );
   });
 

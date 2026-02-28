@@ -32,7 +32,7 @@ export async function GET(
     const { data: recentPosts, error: recentError } = await supabase
       .from("articles")
       .select(
-        "id, title, published_at, score, attention_level, canonical_url, url",
+        "id, title, published_at, score, attention_level, canonical_url, dev_url",
       )
       .eq("author", article.author)
       .neq("id", id)

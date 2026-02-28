@@ -10,7 +10,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from("articles")
       .select(
-        "id, title, author, score, attention_level, canonical_url, url, published_at, reactions, comments, explanations, age_hours, word_count",
+        "id, title, author, score, attention_level, canonical_url, dev_url, published_at, reactions, comments, explanations",
       )
       .gte("published_at", lowerLimit)
       .lte("published_at", upperLimit)
