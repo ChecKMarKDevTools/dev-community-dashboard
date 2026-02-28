@@ -111,12 +111,14 @@ function setupBasicMocks(
     if (page === 1) return articles as never;
     return [];
   });
-  vi.mocked(ForemClient.getArticle).mockImplementation(async (id: number) => {
-    const article = (articles as Record<string, unknown>[]).find(
-      (a) => a.id === id,
-    );
-    return article || makeArticle({ id });
-  });
+  vi.mocked(ForemClient.getArticle).mockImplementation(
+    async (id: number, _?: boolean) => {
+      const article = (articles as Record<string, unknown>[]).find(
+        (a) => a.id === id,
+      );
+      return (article || makeArticle({ id })) as never;
+    },
+  );
   if (typeof user === "function") {
     vi.mocked(ForemClient.getUserByUsername).mockImplementation(user);
   } else {
