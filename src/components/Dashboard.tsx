@@ -19,13 +19,21 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Category strings stored in DB `articles.attention_level` by the scoring pipeline.
+type AttentionCategory =
+  | "NEEDS_RESPONSE"
+  | "POSSIBLY_LOW_QUALITY"
+  | "NEEDS_REVIEW"
+  | "BOOST_VISIBILITY"
+  | "NORMAL";
+
 // Matches the DB `articles` table schema returned by /api/posts and /api/posts/[id].
 type Post = {
   id: number;
   title: string;
   canonical_url: string;
   score: number;
-  attention_level: "low" | "medium" | "high";
+  attention_level: AttentionCategory;
   explanations: string[];
   published_at: string;
   author: string;
@@ -41,7 +49,7 @@ type RecentPost = {
   url: string;
   published_at: string;
   score: number;
-  attention_level: "low" | "medium" | "high";
+  attention_level: AttentionCategory;
 };
 type PostDetails = Post & {
   word_count?: number;
@@ -51,19 +59,33 @@ type PostDetails = Post & {
   recent_posts?: RecentPost[];
 };
 
+/** Maps attention category to Badge variant for the main list and detail panel. */
 function getAttentionVariant(
   level: string,
 ): "destructive" | "warning" | "success" {
-  if (level === "high") return "destructive";
-  if (level === "medium") return "warning";
+  if (level === "NEEDS_REVIEW" || level === "POSSIBLY_LOW_QUALITY")
+    return "destructive";
+  if (level === "NEEDS_RESPONSE" || level === "BOOST_VISIBILITY")
+    return "warning";
   return "success";
+}
+
+/** Human-readable labels for each scoring category. */
+function getCategoryLabel(level: string): string {
+  if (level === "NEEDS_REVIEW") return "Needs Review";
+  if (level === "POSSIBLY_LOW_QUALITY") return "Low Quality";
+  if (level === "NEEDS_RESPONSE") return "Needs Response";
+  if (level === "BOOST_VISIBILITY") return "Boost";
+  return "Normal";
 }
 
 function getRecentPostBadgeVariant(
   level: string,
 ): "destructive" | "warning" | "outline" {
-  if (level === "high") return "destructive";
-  if (level === "medium") return "warning";
+  if (level === "NEEDS_REVIEW" || level === "POSSIBLY_LOW_QUALITY")
+    return "destructive";
+  if (level === "NEEDS_RESPONSE" || level === "BOOST_VISIBILITY")
+    return "warning";
   return "outline";
 }
 
@@ -152,7 +174,7 @@ function DetailPanel({
             variant={getAttentionVariant(postDetails.attention_level)}
             className="px-3 py-1 text-sm"
           >
-            {postDetails.attention_level.toUpperCase()} PRIORITY
+            {getCategoryLabel(postDetails.attention_level)}
           </Badge>
         </div>
 
@@ -393,7 +415,7 @@ export function Dashboard() {
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-2">
                     <Badge variant={getAttentionVariant(post.attention_level)}>
-                      {post.attention_level.toUpperCase()}
+                      {getCategoryLabel(post.attention_level)}
                     </Badge>
                     <span className="text-brand-600 text-xs font-medium">
                       Score: {post.score}
