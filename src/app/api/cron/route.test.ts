@@ -92,9 +92,9 @@ describe("POST /api/cron", () => {
   // ── Delegation ────────────────────────────────────────────────────────────
 
   describe("delegation to syncArticles", () => {
-    it("calls syncArticles (with no arguments)", async () => {
+    it("calls syncArticles with no arguments (processes all valid articles)", async () => {
       await POST(makeRequest(`Bearer ${VALID_SECRET}`));
-      expect(syncArticles).toHaveBeenCalledWith(5);
+      expect(syncArticles).toHaveBeenCalledWith();
     });
 
     it("returns { success, synced, failed, errors } from syncArticles result", async () => {

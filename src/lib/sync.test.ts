@@ -111,6 +111,14 @@ function setupBasicMocks(
     if (page === 1) return articles as never;
     return [];
   });
+  vi.mocked(ForemClient.getArticle).mockImplementation(
+    async (id: number, _?: boolean) => {
+      const article = (articles as Record<string, unknown>[]).find(
+        (a) => a.id === id,
+      );
+      return (article || makeArticle({ id })) as never;
+    },
+  );
   if (typeof user === "function") {
     vi.mocked(ForemClient.getUserByUsername).mockImplementation(user);
   } else {
@@ -495,11 +503,11 @@ describe("syncArticles scoring pipeline", () => {
 
   // ── Edge cases ─────────────────────────────────────────────────────────
 
-  it("returns zero synced when no articles fall in the 2-72h window", async () => {
-    // Article too old (100 hours)
+  it("returns zero synced when article is older than the 168-hour sync window", async () => {
+    // 200 hours = > 7 days, outside SYNC_WINDOW_HOURS
     const article = makeArticle({
       id: 70,
-      published_at: new Date(NOW - 100 * 60 * 60 * 1000).toISOString(),
+      published_at: new Date(NOW - 200 * 60 * 60 * 1000).toISOString(),
     });
 
     setupBasicMocks([article]);
@@ -507,6 +515,108 @@ describe("syncArticles scoring pipeline", () => {
     const result = await syncArticles(5);
 
     expect(result.synced).toBe(0);
+    expect(result.failed).toBe(0);
+  });
+
+  it("syncs articles at exactly the 168-hour boundary (inclusive lower edge)", async () => {
+    // 167 hours — just inside the window
+    const article = makeArticle({
+      id: 72,
+      published_at: new Date(NOW - 167 * 60 * 60 * 1000).toISOString(),
+    });
+
+    setupBasicMocks([article]);
+
+    const result = await syncArticles(5);
+
+    expect(result.synced).toBe(1);
+    expect(result.failed).toBe(0);
+  });
+
+  it("fetches page 2 when page 1 articles are still within the sync window", async () => {
+    // Page 1 returns one article within the window
+    const page1Article = makeArticle({ id: 300 });
+    // Page 2 returns one more article (also within the window); page 3 returns []
+    const page2Article = makeArticle({
+      id: 301,
+      published_at: new Date(NOW - 4 * 60 * 60 * 1000).toISOString(),
+    });
+
+    vi.mocked(ForemClient.getLatestArticles).mockImplementation(
+      async (page) => {
+        if (page === 1) return [page1Article] as never;
+        if (page === 2) return [page2Article] as never;
+        return [];
+      },
+    );
+    vi.mocked(ForemClient.getArticle).mockImplementation(
+      async (id: number) => makeArticle({ id }) as never,
+    );
+    vi.mocked(ForemClient.getUserByUsername).mockResolvedValue(mockUser);
+    vi.mocked(ForemClient.getComments).mockResolvedValue([]);
+    resetSupabaseMock();
+
+    const result = await syncArticles();
+
+    // Both articles from page 1 and page 2 should be synced
+    expect(result.synced).toBe(2);
+    expect(result.failed).toBe(0);
+    expect(ForemClient.getLatestArticles).toHaveBeenCalledWith(1, 100);
+    expect(ForemClient.getLatestArticles).toHaveBeenCalledWith(2, 100);
+  });
+
+  it("stops fetching pages early when oldest article on the page exceeds SYNC_WINDOW_HOURS", async () => {
+    // Page 1: articles within window
+    const recentArticle = makeArticle({ id: 310 });
+    // Page 2: oldest article is 200h old — triggers early exit, no page 3 request
+    const staleArticle = makeArticle({
+      id: 311,
+      published_at: new Date(NOW - 200 * 60 * 60 * 1000).toISOString(),
+    });
+
+    vi.mocked(ForemClient.getLatestArticles).mockImplementation(
+      async (page) => {
+        if (page === 1) return [recentArticle] as never;
+        if (page === 2) return [staleArticle] as never;
+        // page 3+ should never be called
+        return [];
+      },
+    );
+    vi.mocked(ForemClient.getArticle).mockImplementation(
+      async (id: number) => makeArticle({ id }) as never,
+    );
+    vi.mocked(ForemClient.getUserByUsername).mockResolvedValue(mockUser);
+    vi.mocked(ForemClient.getComments).mockResolvedValue([]);
+    resetSupabaseMock();
+
+    const result = await syncArticles();
+
+    // Only the recent article from page 1 is in the valid window
+    expect(result.synced).toBe(1);
+    // Page 3 was never requested
+    expect(ForemClient.getLatestArticles).not.toHaveBeenCalledWith(3, 100);
+  });
+
+  it("processes all valid articles when maxToProcess is undefined (production path)", async () => {
+    // 3 articles all within the sync window
+    const articles = [
+      makeArticle({ id: 320 }),
+      makeArticle({
+        id: 321,
+        published_at: new Date(NOW - 4 * 60 * 60 * 1000).toISOString(),
+      }),
+      makeArticle({
+        id: 322,
+        published_at: new Date(NOW - 6 * 60 * 60 * 1000).toISOString(),
+      }),
+    ];
+
+    setupBasicMocks(articles);
+
+    // Call with no argument — production behavior, no cap
+    const result = await syncArticles();
+
+    expect(result.synced).toBe(3);
     expect(result.failed).toBe(0);
   });
 

@@ -21,6 +21,11 @@ vi.mock("@/lib/forem", () => ({
     getLatestArticles: vi.fn(),
     getUserByUsername: vi.fn(),
     getComments: vi.fn(),
+    getArticle: vi.fn().mockResolvedValue({
+      id: 1,
+      body_html: "Mock body html ".repeat(100),
+      reading_time_minutes: 2,
+    }),
   },
 }));
 
@@ -89,11 +94,10 @@ const DB_RECENT_POSTS = [
 function buildSupabaseListChain(data: unknown, error: unknown = null) {
   const select = vi.fn().mockReturnThis();
   const gte = vi.fn().mockReturnThis();
-  const lte = vi.fn().mockReturnThis();
   const order = vi.fn().mockReturnThis();
   const limit = vi.fn().mockResolvedValue({ data, error });
-  (supabase.from as Mock).mockReturnValue({ select, gte, lte, order, limit });
-  return { select, gte, lte, order, limit };
+  (supabase.from as Mock).mockReturnValue({ select, gte, order, limit });
+  return { select, gte, order, limit };
 }
 
 function buildSupabaseDetailChains(
@@ -145,7 +149,8 @@ describe("Integration: GET /api/posts", () => {
     vi.clearAllMocks();
   });
 
-  it("returns list sorted by score descending from DB", async () => {
+  it("returns non-NORMAL articles first, then NORMAL, each group sorted by score desc", async () => {
+    // DB_ARTICLES: POSSIBLY_LOW_QUALITY (90), NORMAL (20), NEEDS_REVIEW (50)
     buildSupabaseListChain(DB_ARTICLES);
 
     const res = await getPosts();
@@ -153,8 +158,13 @@ describe("Integration: GET /api/posts", () => {
 
     expect(res.status).toBe(200);
     expect(json).toHaveLength(3);
-    // Ordering is delegated to Supabase; the handler passes the data through
-    expect(json[0].score).toBe(90);
+    // Non-NORMAL first: POSSIBLY_LOW_QUALITY (90) then NEEDS_REVIEW (50)
+    expect(json[0].attention_level).not.toBe("NORMAL");
+    expect(json[1].attention_level).not.toBe("NORMAL");
+    // NORMAL last
+    expect(json[2].attention_level).toBe("NORMAL");
+    // Within non-NORMAL group: highest score first
+    expect(json[0].score).toBeGreaterThanOrEqual(json[1].score);
   });
 
   it("response body is a JSON array of post summaries with required fields", async () => {

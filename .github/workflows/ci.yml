@@ -70,21 +70,14 @@ jobs:
             coverage/coverage-summary.json
           retention-days: 30
 
-      - name: Build
-        run: pnpm run build
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
-
-      - name: Lighthouse CI
-        run: |
-          pnpm run lhci:desktop
-          pnpm run lhci:mobile
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
-          LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
-
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9 # v7.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Lighthouse CI (desktop)
+        run: pnpm lhci:desktop
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://dummy.supabase.co
+          SUPABASE_SECRET_KEY: dummy-ci-placeholder

@@ -9,7 +9,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const result = await syncArticles(5);
+    const result = await syncArticles();
     return NextResponse.json({
       success: true,
       ...result,

@@ -9,7 +9,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const result = await syncArticles(5);
+    const result = await syncArticles();
     return NextResponse.json({ success: true, ...result });
   } catch (error: unknown) {
     console.error("Cron sync failed", error);
