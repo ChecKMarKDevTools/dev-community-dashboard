@@ -44,21 +44,21 @@ const DB_ARTICLES = [
     title: "Spam Post",
     author: "spammer",
     score: 90,
-    attention_level: "high",
+    attention_level: "POSSIBLY_LOW_QUALITY",
   },
   {
     id: 2,
     title: "Normal Post",
     author: "regular",
     score: 20,
-    attention_level: "low",
+    attention_level: "NORMAL",
   },
   {
     id: 3,
-    title: "Mid Post",
+    title: "Review Post",
     author: "mid",
     score: 50,
-    attention_level: "medium",
+    attention_level: "NEEDS_REVIEW",
   },
 ];
 
@@ -67,11 +67,11 @@ const DB_ARTICLE_DETAIL = {
   title: "Spam Post",
   author: "spammer",
   score: 90,
-  attention_level: "high",
+  attention_level: "POSSIBLY_LOW_QUALITY",
   reactions: 100,
   comments: 5,
   tags: ["javascript"],
-  explanations: ["Account age is less than 7 days"],
+  explanations: ["Risk Score: 8"],
   published_at: "2024-01-15T10:00:00Z",
   canonical_url: "https://external.example.com/post",
 };
@@ -82,7 +82,7 @@ const DB_RECENT_POSTS = [
     title: "Earlier Spam",
     published_at: "2024-01-14T10:00:00Z",
     score: 80,
-    attention_level: "high",
+    attention_level: "POSSIBLY_LOW_QUALITY",
   },
 ];
 
@@ -208,7 +208,7 @@ describe("Integration: GET /api/posts/[id]", () => {
     expect(json.title).toBe("Spam Post");
     expect(json.author).toBe("spammer");
     expect(json.score).toBe(90);
-    expect(json.attention_level).toBe("high");
+    expect(json.attention_level).toBe("POSSIBLY_LOW_QUALITY");
     // recent_posts
     expect(Array.isArray(json.recent_posts)).toBe(true);
     expect(json.recent_posts[0].id).toBe(4);
