@@ -147,19 +147,19 @@ describe("getScoreQualitativeLabel", () => {
 });
 
 describe("getScoreBarClass", () => {
-  it("returns bg-danger-500 for values > 20", () => {
-    expect(getScoreBarClass(21)).toBe("bg-danger-500");
-    expect(getScoreBarClass(50)).toBe("bg-danger-500");
+  it("returns bg-state-negative for values > 20", () => {
+    expect(getScoreBarClass(21)).toBe("bg-state-negative");
+    expect(getScoreBarClass(50)).toBe("bg-state-negative");
   });
 
-  it("returns bg-warning-500 for values > 10 and <= 20", () => {
-    expect(getScoreBarClass(11)).toBe("bg-warning-500");
-    expect(getScoreBarClass(20)).toBe("bg-warning-500");
+  it("returns bg-state-warning for values > 10 and <= 20", () => {
+    expect(getScoreBarClass(11)).toBe("bg-state-warning");
+    expect(getScoreBarClass(20)).toBe("bg-state-warning");
   });
 
-  it("returns bg-brand-500 for values <= 10", () => {
-    expect(getScoreBarClass(0)).toBe("bg-brand-500");
-    expect(getScoreBarClass(10)).toBe("bg-brand-500");
+  it("returns bg-accent-primary for values <= 10", () => {
+    expect(getScoreBarClass(0)).toBe("bg-accent-primary");
+    expect(getScoreBarClass(10)).toBe("bg-accent-primary");
   });
 });
 

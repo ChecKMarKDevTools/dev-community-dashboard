@@ -78,9 +78,9 @@ export function getScoreQualitativeLabel(
 }
 
 export function getScoreBarClass(value: number): string {
-  if (value > 20) return "bg-danger-500";
-  if (value > 10) return "bg-warning-500";
-  return "bg-brand-500";
+  if (value > 20) return "bg-state-negative";
+  if (value > 10) return "bg-state-warning";
+  return "bg-accent-primary";
 }
 
 /** Extract word count from explanations array (e.g., "Word Count: 1000") */
