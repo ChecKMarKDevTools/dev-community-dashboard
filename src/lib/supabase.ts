@@ -6,9 +6,10 @@ function getClient(): SupabaseClient {
   // Server-side only; SUPABASE_SECRET_KEY bypasses RLS for backend sync.
   // Deferred so Next.js module collection during build does not fail when
   // env vars are absent — createClient is only called at request time.
+  // createClient accepts string | undefined; runtime throws if missing
   _client ??= createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SECRET_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+    process.env.SUPABASE_SECRET_KEY ?? "",
   );
   return _client;
 }

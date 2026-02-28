@@ -28,6 +28,13 @@ export interface ForemArticle {
   reading_time_minutes: number;
   tag_list: string[];
   tags: string;
+  organization?: {
+    name: string;
+    username: string;
+    slug: string;
+    profile_image: string;
+    profile_image_90: string;
+  };
   user: {
     name: string;
     username: string;

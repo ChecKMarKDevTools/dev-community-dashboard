@@ -1,4 +1,9 @@
-import { ForemUser, ForemComment, ForemClient } from "@/lib/forem";
+import {
+  ForemArticle,
+  ForemUser,
+  ForemComment,
+  ForemClient,
+} from "@/lib/forem";
 import { supabase } from "@/lib/supabase";
 
 export interface SyncResult {
@@ -12,8 +17,7 @@ async function resolveUser(
   username: string,
   userCache: Map<string, ForemUser | null>,
 ): Promise<ForemUser | null> {
-  if (userCache.has(username))
-    return userCache.get(username) as ForemUser | null;
+  if (userCache.has(username)) return userCache.get(username) ?? null;
   const user = await ForemClient.getUserByUsername(username);
   userCache.set(username, user);
   return user;
@@ -28,13 +32,13 @@ function countWords(textHtml?: string): number {
   if (!textHtml) return 0;
   // A rough estimate for parsed comments body
   return textHtml
-    .replace(/<[^>]*>?/gm, "")
+    .replaceAll(/<[^>]*>?/g, "")
     .split(/\s+/)
     .filter((w) => w.length > 0).length;
 }
 
-// Basic Sentiments (for Hackathon requirement)
-const POSITIVE_WORDS = [
+// Basic Sentiments (for Hackathon requirement) — Sets for O(1) lookups (S7776)
+const POSITIVE_WORDS = new Set([
   "awesome",
   "great",
   "excellent",
@@ -43,8 +47,8 @@ const POSITIVE_WORDS = [
   "amazing",
   "thanks",
   "helpful",
-];
-const NEGATIVE_WORDS = [
+]);
+const NEGATIVE_WORDS = new Set([
   "terrible",
   "bad",
   "awful",
@@ -54,7 +58,361 @@ const NEGATIVE_WORDS = [
   "broken",
   "issue",
   "bug",
+]);
+
+const PROMO_WORDS = [
+  "subscribe",
+  "follow",
+  "check out",
+  "buy",
+  "sale",
+  "link in bio",
 ];
+const HELP_WORDS = [
+  "stuck",
+  "confused",
+  "need help",
+  "why doesn't",
+  "how do i",
+  "what am i missing",
+  "beginner question",
+];
+
+/** Accumulated metrics from comment tree traversal */
+interface CommentMetrics {
+  uniqueCommenters: Set<string>;
+  totalCommentWords: number;
+  pos_comments: number;
+  neg_comments: number;
+  alternating_pairs: number;
+  replies_with_parent: number;
+  promo_keywords: number;
+  help_keywords: number;
+  externalDomainCounts: Map<string, number>;
+}
+
+function createEmptyMetrics(): CommentMetrics {
+  return {
+    uniqueCommenters: new Set<string>(),
+    totalCommentWords: 0,
+    pos_comments: 0,
+    neg_comments: 0,
+    alternating_pairs: 0,
+    replies_with_parent: 0,
+    promo_keywords: 0,
+    help_keywords: 0,
+    externalDomainCounts: new Map<string, number>(),
+  };
+}
+
+/** Analyze sentiment of a single comment's text */
+function analyzeSentiment(words: string[], metrics: CommentMetrics): void {
+  if (words.some((w) => POSITIVE_WORDS.has(w))) metrics.pos_comments++;
+  if (words.some((w) => NEGATIVE_WORDS.has(w))) metrics.neg_comments++;
+}
+
+/** Count keyword matches for a single comment */
+function detectKeywords(
+  txt: string,
+  commenter: string,
+  articleAuthor: string,
+  metrics: CommentMetrics,
+): void {
+  // Only count promo words from the article author
+  if (commenter === articleAuthor) {
+    for (const pw of PROMO_WORDS) {
+      if (txt.includes(pw)) metrics.promo_keywords++;
+    }
+  }
+  for (const hw of HELP_WORDS) {
+    if (txt.includes(hw)) metrics.help_keywords++;
+  }
+}
+
+/** Track external link domains from a comment's HTML */
+function trackExternalLinks(bodyHtml: string, metrics: CommentMetrics): void {
+  const hrefMatches = bodyHtml.match(/href="https?:\/\/([^"/?#]+)/gi);
+  if (!hrefMatches) return;
+  for (const m of hrefMatches) {
+    const domain = m.replace(/href="https?:\/\//i, "").toLowerCase();
+    metrics.externalDomainCounts.set(
+      domain,
+      (metrics.externalDomainCounts.get(domain) ?? 0) + 1,
+    );
+  }
+}
+
+/** Process a single comment node (non-recursive part) */
+function processOneComment(
+  c: ForemComment,
+  articleAuthor: string,
+  metrics: CommentMetrics,
+  parentAuthor?: string,
+): void {
+  const commenter = c.user.username;
+  metrics.uniqueCommenters.add(commenter);
+
+  const txt = c.body_html.toLowerCase();
+  metrics.totalCommentWords += countWords(c.body_html);
+
+  if (parentAuthor) {
+    metrics.replies_with_parent++;
+    if (c.children && c.children.length > 0) {
+      const replyAuthor = c.children[0].user.username;
+      if (replyAuthor === parentAuthor) metrics.alternating_pairs++;
+    }
+  }
+
+  analyzeSentiment(txt.split(/\W+/), metrics);
+  detectKeywords(txt, commenter, articleAuthor, metrics);
+  trackExternalLinks(c.body_html, metrics);
+}
+
+/** Recursively walk comment tree and accumulate metrics */
+function processCommentTree(
+  thread: ForemComment[],
+  articleAuthor: string,
+  metrics: CommentMetrics,
+  parentAuthor?: string,
+): void {
+  for (const c of thread) {
+    processOneComment(c, articleAuthor, metrics, parentAuthor);
+    if (c.children && c.children.length > 0) {
+      processCommentTree(c.children, articleAuthor, metrics, c.user.username);
+    }
+  }
+}
+
+/** Compute risk score with frequency penalty and engagement credit */
+function computeRiskScore(
+  author_post_frequency: number,
+  word_count: number,
+  reaction_count: number,
+  comment_count: number,
+  promo_keywords: number,
+  repeated_links: number,
+  distinct_commenters: number,
+): {
+  risk_score: number;
+  frequency_penalty: number;
+  engagement_credit: number;
+} {
+  // Only penalize posting frequency above 2/day (normal for staff/active users)
+  const frequency_penalty = Math.max(0, author_post_frequency - 2) * 2;
+  // Engagement credit: high-traction posts are unlikely to be low quality
+  const engagement_credit =
+    (reaction_count >= 10 ? 2 : 0) + (distinct_commenters >= 5 ? 1 : 0);
+  const risk_score = Math.max(
+    0,
+    frequency_penalty +
+      (word_count < 120 ? 2 : 0) +
+      (reaction_count === 0 && comment_count === 0 ? 2 : 0) +
+      promo_keywords +
+      repeated_links -
+      engagement_credit,
+  );
+  return { risk_score, frequency_penalty, engagement_credit };
+}
+
+/** Bundled inputs for the classification function (S107: max 7 params) */
+interface ClassificationInput {
+  readonly article: ForemArticle;
+  readonly time_since_post: number;
+  readonly support_score: number;
+  readonly risk_score: number;
+  readonly comment_count: number;
+  readonly reaction_count: number;
+  readonly heat_score: number;
+  readonly word_count: number;
+  readonly distinct_commenters: number;
+  readonly avg_comment_length: number;
+  readonly attention_delta: number;
+}
+
+/** Classify an article into an attention category */
+function classifyArticle(input: Readonly<ClassificationInput>): string {
+  // Official devteam org posts (weekly threads, challenges) skip classification
+  if (input.article.organization?.slug === "devteam") return "NORMAL";
+
+  if (input.time_since_post >= 30 && input.support_score >= 3)
+    return "NEEDS_RESPONSE";
+  if (input.risk_score >= 4) return "POSSIBLY_LOW_QUALITY";
+  if (
+    input.comment_count >= 6 &&
+    input.heat_score >= 5 &&
+    input.comment_count > 0 &&
+    input.reaction_count / input.comment_count < 1.2
+  ) {
+    return "NEEDS_REVIEW";
+  }
+  if (
+    input.word_count >= 600 &&
+    input.distinct_commenters >= 2 &&
+    input.avg_comment_length >= 18 &&
+    input.reaction_count <= 5 &&
+    input.attention_delta >= 3
+  ) {
+    return "BOOST_VISIBILITY";
+  }
+  return "NORMAL";
+}
+
+/** Check if any external domain appears more than 2 times in comments */
+function detectRepeatedLinks(domainCounts: Map<string, number>): number {
+  for (const count of domainCounts.values()) {
+    if (count > 2) return 2;
+  }
+  return 0;
+}
+
+/** Compute derived metrics from raw comment data and article stats */
+interface DerivedMetrics {
+  distinct_commenters: number;
+  avg_comment_length: number;
+  heat_score: number;
+  attention_delta: number;
+  effort: number;
+}
+
+function computeDerivedMetrics(
+  metrics: CommentMetrics,
+  comment_count: number,
+  reaction_count: number,
+  time_since_post: number,
+  word_count: number,
+): DerivedMetrics {
+  const distinct_commenters = metrics.uniqueCommenters.size;
+  const comments_per_hour = comment_count / Math.max(1, time_since_post / 60);
+  const avg_comment_length =
+    comment_count > 0 ? metrics.totalCommentWords / comment_count : 0;
+  const reply_ratio = metrics.replies_with_parent / Math.max(1, comment_count);
+  const effort =
+    Math.log2(word_count + 1) + distinct_commenters + avg_comment_length / 40;
+  const exposure = Math.max(1, reaction_count + comment_count);
+  const attention_delta = effort - Math.log2(exposure + 1);
+  const sentiment_flips =
+    Math.abs(metrics.pos_comments - metrics.neg_comments) /
+    Math.max(1, comment_count);
+  const heat_score =
+    comments_per_hour +
+    reply_ratio * 3 +
+    metrics.alternating_pairs +
+    sentiment_flips;
+
+  return {
+    distinct_commenters,
+    avg_comment_length,
+    heat_score,
+    attention_delta,
+    effort,
+  };
+}
+
+/** Deep-score a single article: fetch comments, compute metrics, classify, persist */
+async function deepScoreAndPersist(
+  article: ForemArticle,
+  username: string,
+  word_count: number,
+  age_hours: number,
+  author_post_frequency: number,
+  preliminary_score: number,
+  detailedUser: ForemUser | null,
+  postsByAuthor24h: Map<string, number>,
+): Promise<void> {
+  const comments = await ForemClient.getComments(article.id);
+
+  const comment_count = article.comments_count;
+  const reaction_count = article.public_reactions_count;
+  const time_since_post = age_hours * 60; // in minutes
+
+  const metrics = createEmptyMetrics();
+  processCommentTree(comments, username, metrics);
+
+  const derived = computeDerivedMetrics(
+    metrics,
+    comment_count,
+    reaction_count,
+    time_since_post,
+    word_count,
+  );
+
+  const repeated_links = detectRepeatedLinks(metrics.externalDomainCounts);
+
+  const { risk_score, frequency_penalty, engagement_credit } = computeRiskScore(
+    author_post_frequency,
+    word_count,
+    reaction_count,
+    comment_count,
+    metrics.promo_keywords,
+    repeated_links,
+    derived.distinct_commenters,
+  );
+
+  const is_first_post = detailedUser
+    ? (Date.now() - new Date(detailedUser.joined_at).getTime()) /
+        (1000 * 60 * 60 * 24) <
+        30 && postsByAuthor24h.get(username) === 1
+    : false;
+  const support_score =
+    (is_first_post ? 2 : 0) +
+    (reaction_count === 0 ? 1 : 0) +
+    (comment_count === 0 ? 2 : 0) +
+    metrics.help_keywords;
+
+  const category = classifyArticle({
+    article,
+    time_since_post,
+    support_score,
+    risk_score,
+    comment_count,
+    reaction_count,
+    heat_score: derived.heat_score,
+    word_count,
+    distinct_commenters: derived.distinct_commenters,
+    avg_comment_length: derived.avg_comment_length,
+    attention_delta: derived.attention_delta,
+  });
+
+  const final_score = Math.max(0, preliminary_score);
+
+  const explanations = [
+    `Word Count: ${word_count}`,
+    `Unique Commenters: ${derived.distinct_commenters}`,
+    `Effort: ${derived.effort.toFixed(2)}`,
+    `Attention Delta: ${derived.attention_delta.toFixed(2)}`,
+    `Heat Score: ${derived.heat_score.toFixed(2)}`,
+    `Risk Score: ${risk_score} (freq: ${frequency_penalty}, promo: ${metrics.promo_keywords}, engage: -${engagement_credit})`,
+    `Support Score: ${support_score}`,
+  ];
+
+  const { error: articleError } = await supabase.from("articles").upsert({
+    id: article.id,
+    author: username,
+    published_at: article.published_at,
+    reactions: reaction_count,
+    comments: comment_count,
+    tags: article.tag_list,
+    canonical_url: article.canonical_url,
+    dev_url: article.url,
+    score: Math.round(final_score),
+    attention_level: category,
+    explanations: explanations,
+    title: article.title,
+    updated_at: new Date().toISOString(),
+  });
+
+  if (articleError) throw new Error(articleError.message);
+
+  // Save commenters for simple integrity tracking mapping
+  for (const commenter of Array.from(metrics.uniqueCommenters)) {
+    await supabase
+      .from("commenters")
+      .upsert(
+        { article_id: article.id, username: commenter },
+        { onConflict: "article_id,username" },
+      );
+  }
+}
 
 export async function syncArticles(maxToProcess?: number): Promise<SyncResult> {
   const errors: string[] = [];
@@ -63,7 +421,6 @@ export async function syncArticles(maxToProcess?: number): Promise<SyncResult> {
 
   try {
     // --- STEP 1: FETCH ARTICLES ---
-    // Fetch 2 pages of 100
     const page1 = await ForemClient.getLatestArticles(1, 100);
     const page2 = await ForemClient.getLatestArticles(2, 100);
     const allArticles = [...page1, ...page2];
@@ -74,11 +431,10 @@ export async function syncArticles(maxToProcess?: number): Promise<SyncResult> {
       return ageHours >= 2 && ageHours <= 72;
     });
 
-    // We need recent post frequencies per author. We map this here from the full raw batch
+    // Recent post frequencies per author from full raw batch
     const postsByAuthor24h = new Map<string, number>();
     for (const a of allArticles) {
-      const age = getAgeHours(a.published_at);
-      if (age <= 24) {
+      if (getAgeHours(a.published_at) <= 24) {
         postsByAuthor24h.set(
           a.user.username,
           (postsByAuthor24h.get(a.user.username) || 0) + 1,
@@ -88,7 +444,7 @@ export async function syncArticles(maxToProcess?: number): Promise<SyncResult> {
 
     // --- STEP 2: LIGHT SCORING ---
     const scoredCandidates = validArticles.map((article) => {
-      const word_count = article.reading_time_minutes * 200; // estimated
+      const word_count = article.reading_time_minutes * 200;
       const author_post_frequency =
         postsByAuthor24h.get(article.user.username) || 1;
       const age_hours = getAgeHours(article.published_at);
@@ -108,7 +464,6 @@ export async function syncArticles(maxToProcess?: number): Promise<SyncResult> {
       };
     });
 
-    // Shortlist top candidates (default 20 unless specified)
     scoredCandidates.sort((a, b) => b.preliminary_score - a.preliminary_score);
     const shortlist = scoredCandidates.slice(0, maxToProcess || 20);
 
@@ -127,7 +482,6 @@ export async function syncArticles(maxToProcess?: number): Promise<SyncResult> {
         } = candidate;
         const username = article.user.username;
 
-        // Upsert User
         const detailedUser = await resolveUser(username, userCache);
         if (detailedUser && !upsertedAuthors.has(username)) {
           const { error: userError } = await supabase.from("users").upsert({
@@ -139,185 +493,16 @@ export async function syncArticles(maxToProcess?: number): Promise<SyncResult> {
           upsertedAuthors.add(username);
         }
 
-        // Deep Fetch Comments
-        const comments = await ForemClient.getComments(article.id);
-
-        // Compute Discussion Metrics
-        const comment_count = article.comments_count;
-        const reaction_count = article.public_reactions_count;
-        const time_since_post = age_hours * 60; // in minutes
-
-        const uniqueCommenters = new Set<string>();
-        let totalCommentWords = 0;
-        let pos_comments = 0;
-        let neg_comments = 0;
-        let alternating_pairs = 0; // ABAB patterns
-        let replies_with_parent = 0;
-        let promo_keywords = 0;
-        let help_keywords = 0;
-
-        const PROMO_WORDS = [
-          "subscribe",
-          "follow",
-          "check out",
-          "buy",
-          "sale",
-          "link in bio",
-        ];
-        const HELP_WORDS = [
-          "stuck",
-          "confused",
-          "need help",
-          "why doesn't",
-          "how do i",
-          "what am i missing",
-          "beginner question",
-        ];
-
-        // Flatten comments to analyze
-        function processCommentTree(
-          thread: ForemComment[],
-          parentAuthor?: string,
-        ) {
-          for (const c of thread) {
-            const commenter = c.user.username;
-            uniqueCommenters.add(commenter);
-
-            const txt = c.body_html.toLowerCase();
-            totalCommentWords += countWords(c.body_html);
-
-            if (parentAuthor) {
-              replies_with_parent++;
-              if (c.children && c.children.length > 0) {
-                const replyAuthor = c.children[0].user.username;
-                if (replyAuthor === parentAuthor) alternating_pairs++;
-              }
-            }
-
-            // Sentiment heuristic
-            const words = txt.split(/\W+/);
-            if (words.some((w) => POSITIVE_WORDS.includes(w))) pos_comments++;
-            if (words.some((w) => NEGATIVE_WORDS.includes(w))) neg_comments++;
-
-            // Detect keywords
-            PROMO_WORDS.forEach((pw) => {
-              if (txt.includes(pw)) promo_keywords++;
-            });
-            HELP_WORDS.forEach((hw) => {
-              if (txt.includes(hw)) help_keywords++;
-            });
-
-            if (c.children && c.children.length > 0) {
-              processCommentTree(c.children, commenter);
-            }
-          }
-        }
-        processCommentTree(comments);
-
-        // Core calculated metrics
-        const distinct_commenters = uniqueCommenters.size;
-        const comments_per_hour =
-          comment_count / Math.max(1, time_since_post / 60);
-        const avg_comment_length =
-          comment_count > 0 ? totalCommentWords / comment_count : 0;
-        const reply_ratio = replies_with_parent / Math.max(1, comment_count);
-        const effort =
-          Math.log2(word_count + 1) +
-          distinct_commenters +
-          avg_comment_length / 40;
-        const exposure = Math.max(1, reaction_count + comment_count);
-
-        // Sub scores
-        const attention_delta = effort - Math.log2(exposure + 1);
-        const sentiment_flips =
-          Math.abs(pos_comments - neg_comments) / Math.max(1, comment_count);
-        const heat_score =
-          comments_per_hour +
-          reply_ratio * 3 +
-          alternating_pairs +
-          sentiment_flips;
-
-        // Note on promo link logic: skipping exact same_external_domain count without HTML parser, using promo_keywords instead for low quality
-        const risk_score =
-          author_post_frequency * 2 +
-          (word_count < 120 ? 2 : 0) +
-          (reaction_count === 0 && comment_count === 0 ? 2 : 0) +
-          promo_keywords;
-
-        const is_first_post = detailedUser
-          ? (Date.now() - new Date(detailedUser.joined_at).getTime()) /
-              (1000 * 60 * 60 * 24) <
-              30 && postsByAuthor24h.get(username) === 1
-          : false;
-        const support_score =
-          (is_first_post ? 2 : 0) +
-          (reaction_count === 0 ? 1 : 0) +
-          (comment_count === 0 ? 2 : 0) +
-          help_keywords;
-
-        // Apply IF logic
-        let category = "NORMAL";
-
-        if (time_since_post >= 30 && support_score >= 3) {
-          category = "NEEDS_RESPONSE";
-        } else if (risk_score >= 4) {
-          category = "POSSIBLY_LOW_QUALITY";
-        } else if (
-          comment_count >= 6 &&
-          heat_score >= 5 &&
-          comment_count > 0 &&
-          reaction_count / comment_count < 1.2
-        ) {
-          category = "NEEDS_REVIEW";
-        } else if (
-          word_count >= 600 &&
-          distinct_commenters >= 2 &&
-          avg_comment_length >= 18 &&
-          reaction_count <= 5 &&
-          attention_delta >= 3
-        ) {
-          category = "BOOST_VISIBILITY";
-        }
-
-        // Fallback to "NORMAL"
-        const final_score = Math.max(0, preliminary_score);
-
-        // Save to DB
-        const explanations = [
-          `Word Count: ${word_count}`,
-          `Unique Commenters: ${distinct_commenters}`,
-          `Heat Score: ${heat_score.toFixed(2)}`,
-          `Risk Score: ${risk_score}`,
-          `Support Score: ${support_score}`,
-        ];
-
-        const { error: articleError } = await supabase.from("articles").upsert({
-          id: article.id,
-          author: username,
-          published_at: article.published_at,
-          reactions: reaction_count,
-          comments: comment_count,
-          tags: article.tag_list,
-          canonical_url: article.canonical_url,
-          dev_url: article.url, // NEW FIELD
-          score: Math.round(final_score),
-          attention_level: category, // NEW CATEGORIES
-          explanations: explanations,
-          title: article.title,
-          updated_at: new Date().toISOString(),
-        });
-
-        if (articleError) throw new Error(articleError.message);
-
-        // Save commenters for simple integrity tracking mapping
-        for (const commenter of Array.from(uniqueCommenters)) {
-          await supabase
-            .from("commenters")
-            .upsert(
-              { article_id: article.id, username: commenter },
-              { onConflict: "article_id,username" },
-            );
-        }
+        await deepScoreAndPersist(
+          article,
+          username,
+          word_count,
+          age_hours,
+          author_post_frequency,
+          preliminary_score,
+          detailedUser,
+          postsByAuthor24h,
+        );
 
         synced++;
       } catch (err: unknown) {
