@@ -25,8 +25,8 @@ FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN groupadd --system --gid 1001 nodejs \
-    && useradd --system --uid 1001 -g nodejs nextjs
+RUN groupadd --gid 1001 nodejs \
+    && useradd --uid 1001 -g nodejs --no-create-home --shell /sbin/nologin nextjs
 COPY --from=builder /app/public ./public
 RUN mkdir .next \
     && chown nextjs:nodejs .next
