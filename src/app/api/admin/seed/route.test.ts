@@ -212,11 +212,14 @@ describe("POST /api/admin/seed", () => {
 
   describe("pagination", () => {
     it("collects only articles within the date window, skipping older ones on same page", async () => {
-      // Mixed ordering on one page — simulates Forem's rank-based response
+      // Mixed ordering on one page — simulates Forem's rank-based response.
+      // Article 3 uses daysAgo=2 (not 3) to stay clearly inside the 3-day window
+      // regardless of sub-millisecond clock drift between test setup and the
+      // route's Date.now() call.
       const articles = [
         makeArticle(1, 1),
         makeArticle(2, 2),
-        makeArticle(3, 3),
+        makeArticle(3, 2),
         makeArticle(4, 10), // outside window — should be skipped, not stop pagination
         makeArticle(5, 1), // back inside window — must still be collected
       ];
