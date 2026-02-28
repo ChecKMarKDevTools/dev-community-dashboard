@@ -13,6 +13,11 @@ function resolveAllowedOrigin(
   return null;
 }
 
+function appendVaryOrigin(headers: Headers): void {
+  const existing = headers.get("Vary");
+  headers.set("Vary", existing ? `${existing}, Origin` : "Origin");
+}
+
 export function proxy(request: NextRequest): NextResponse {
   const allowedOrigins: readonly string[] = (process.env.ALLOWED_ORIGINS ?? "")
     .split(",")
@@ -28,7 +33,7 @@ export function proxy(request: NextRequest): NextResponse {
       headers.set("Access-Control-Allow-Origin", allowedOrigin);
       headers.set("Access-Control-Allow-Methods", CORS_ALLOW_METHODS);
       headers.set("Access-Control-Allow-Headers", CORS_ALLOW_HEADERS);
-      headers.set("Vary", "Origin");
+      appendVaryOrigin(headers);
     }
     return new NextResponse(null, { status: 204, headers });
   }
@@ -38,7 +43,7 @@ export function proxy(request: NextRequest): NextResponse {
     response.headers.set("Access-Control-Allow-Origin", allowedOrigin);
     response.headers.set("Access-Control-Allow-Methods", CORS_ALLOW_METHODS);
     response.headers.set("Access-Control-Allow-Headers", CORS_ALLOW_HEADERS);
-    response.headers.set("Vary", "Origin");
+    appendVaryOrigin(response.headers);
   }
 
   return response;

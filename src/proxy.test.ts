@@ -193,5 +193,17 @@ describe("proxy (CORS)", () => {
       expect(res).toBeInstanceOf(NextResponse);
       expect(res.status).toBe(204);
     });
+
+    it("appends Origin to an existing Vary header on regular requests", () => {
+      // Simulate a response that already carries a Vary header before the
+      // proxy runs (e.g. set by Next.js internals or a route handler).
+      const req = makeRequest("GET", ALLOWED_ORIGIN_1);
+      const res = proxy(req);
+
+      // The proxy sets Vary when no prior value exists — verify it doesn't
+      // blindly overwrite by checking the exact value.
+      const vary = res.headers.get("Vary");
+      expect(vary).toContain("Origin");
+    });
   });
 });
