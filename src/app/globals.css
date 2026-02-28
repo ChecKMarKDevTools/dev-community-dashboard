@@ -76,54 +76,48 @@
     --text-secondary: #4b5266;
     --text-muted: #7a8196;
 
-    /* Accent */
+    /* Accent — muted violet touch */
     --accent-primary: #6e5a86;
     --accent-hover: #7f6aa0;
     --accent-active: #5a496f;
-    --accent-soft: #e7e3f1;
+    --accent-soft: #eae6f3;
     --accent-strong: #b4a8d6;
     --accent-deep: #5a496f;
-    --accent-glow: #c9b8ff;
+    --accent-glow: #c4b5ff;
 
-    /* State — purple only, no orange/green/red */
-    --state-positive: #7c6fa3;
-    --state-negative: #5e5476;
-    --state-warning: #9b8fb9;
-    --state-info: #b4a8d6;
+    /* State — desaturated, accessible palette */
+    --state-positive: #5b7a6e;
+    --state-negative: #7a5b5e;
+    --state-warning: #7a755b;
+    --state-info: #5b687a;
 
     /* Chart */
     --chart-grid: #e3e6f0;
     --chart-axis: #8c92a8;
     --chart-series-primary: #6e5a86;
-    --chart-series-secondary: #9a8bc1;
-    --chart-series-tertiary: #c7bedf;
+    --chart-series-secondary: #5b7a8a;
+    --chart-series-tertiary: #8a7a5b;
 
     /* Interactive */
-    --focus-ring: #8a79af;
+    --focus-ring: #6e5a86;
     --selection-bg: #e2dcf3;
 
-    /* Badge palette — no orange, green, or red */
+    /* Badge palette — muted, accessible tones */
     --badge-neutral-bg: #e3e6f0;
     --badge-neutral-hover: #d7dbe7;
     --badge-neutral-text: #4b5266;
     --badge-info-bg: #e7e3f1;
     --badge-info-hover: #d4cce8;
     --badge-info-text: #6e5a86;
-
-    /* teal → lavender (replaces green) */
-    --badge-teal-bg: #ede9f8;
-    --badge-teal-hover: #dcd5f0;
-    --badge-teal-text: #5a496f;
-
-    /* attention → medium purple (replaces amber) */
-    --badge-attention-bg: #e7e3f1;
-    --badge-attention-hover: #d4cce8;
-    --badge-attention-text: #6e5a86;
-
-    /* critical → deep purple (replaces red) */
-    --badge-critical-bg: #d4cce8;
-    --badge-critical-hover: #c2b5df;
-    --badge-critical-text: #3d2e52;
+    --badge-teal-bg: #e1f0ee;
+    --badge-teal-hover: #cfe6e3;
+    --badge-teal-text: #3b6b62;
+    --badge-attention-bg: #ede9f8;
+    --badge-attention-hover: #dcd5f0;
+    --badge-attention-text: #5a496f;
+    --badge-critical-bg: #f0e5ec;
+    --badge-critical-hover: #e5d5df;
+    --badge-critical-text: #6b3a50;
 
     /* Gradient */
     --gradient-from: #f6f7fb;
@@ -138,80 +132,80 @@
     --border: #d7dbe7;
   }
 
-  /* ── Dark mode — exact spec palette ──────────────────────── */
+  /*
+   * ── Dark mode — charcoal-blue base with violet accent ─────
+   *
+   * Deep navy-charcoal surfaces create the foundation.
+   * Purple is a *touch*, not the dominant hue.
+   * Glass-morphic translucency handled by component utilities below.
+   */
   .dark {
-    /* Surfaces */
-    --surface-primary: #0f1220; /* page_bg */
-    --surface-secondary: #171a2b; /* panel_bg */
-    --surface-raised: #1e2236; /* panel_bg_alt */
-    --surface-border: #2a2f49; /* panel_border */
-    --paper-clue: #171a2b; /* panel_bg for cards */
+    /* Surfaces — deep charcoal with blue undertone */
+    --surface-primary: #0b0f1a;
+    --surface-secondary: #111827;
+    --surface-raised: #1a2035;
+    --surface-border: #232d44;
+    --paper-clue: #111827;
 
-    /* Text */
-    --text-primary: #f1f3fa;
-    --text-secondary: #aab0c6;
-    --text-muted: #7e859e;
+    /* Text — soft white, no eye strain */
+    --text-primary: #e9ecf1;
+    --text-secondary: #9ca3b4;
+    --text-muted: #6b7280;
 
-    /* Accent */
-    --accent-primary: #8a79af; /* accent_primary */
-    --accent-hover: #b4a8d6; /* accent_strong */
-    --accent-active: #5a496f; /* accent_deep */
-    --accent-soft: #2a2f49;
-    --accent-strong: #b4a8d6;
-    --accent-deep: #5a496f;
-    --accent-glow: #c9b8ff;
+    /* Accent — violet touch, not dominant */
+    --accent-primary: #8b7ec8;
+    --accent-hover: #a99be0;
+    --accent-active: #6b5fa0;
+    --accent-soft: #1e1b3a;
+    --accent-strong: #c4b5ff;
+    --accent-deep: #5a4f8c;
+    --accent-glow: #c4b5ff;
 
-    /* State — purple only, no orange/green/red */
-    --state-positive: #8a79af;
-    --state-negative: #5a496f;
-    --state-warning: #b4a8d6;
-    --state-info: #aab0c6;
+    /* State — muted but distinguishable against charcoal */
+    --state-positive: #5b9e82;
+    --state-negative: #9e5b6e;
+    --state-warning: #b89a5e;
+    --state-info: #5e8cb8;
 
     /* Chart */
-    --chart-grid: #262b45; /* spec chart_grid */
-    --chart-axis: #8c92a8; /* spec chart_axis */
-    --chart-series-primary: #8a79af;
-    --chart-series-secondary: #b4a8d6;
-    --chart-series-tertiary: #5a496f;
+    --chart-grid: #1a2035;
+    --chart-axis: #6b7280;
+    --chart-series-primary: #8b7ec8;
+    --chart-series-secondary: #5e8cb8;
+    --chart-series-tertiary: #5b9e82;
 
     /* Interactive */
-    --focus-ring: #8a79af;
-    --selection-bg: #2a2f49;
+    --focus-ring: #8b7ec8;
+    --selection-bg: #1e1b3a;
 
-    /* Badge palette — no orange, green, or red */
-    --badge-neutral-bg: #1e2236;
-    --badge-neutral-hover: #2a2f49;
-    --badge-neutral-text: #aab0c6;
-    --badge-info-bg: #2a2f49;
-    --badge-info-hover: #353c5a;
-    --badge-info-text: #b4a8d6;
-
-    /* teal → lavender-purple (replaces green) */
-    --badge-teal-bg: #1e2236;
-    --badge-teal-hover: #2a2f49;
-    --badge-teal-text: #b4a8d6;
-
-    /* attention → medium purple (replaces amber) */
-    --badge-attention-bg: #2a2f49;
-    --badge-attention-hover: #353c5a;
-    --badge-attention-text: #c9b8ff;
-
-    /* critical → accent_deep per interaction hierarchy */
-    --badge-critical-bg: #5a496f;
-    --badge-critical-hover: #6a5580;
-    --badge-critical-text: #f1f3fa;
+    /* Badge palette — dark-mode safe, distinguishable */
+    --badge-neutral-bg: #1a2035;
+    --badge-neutral-hover: #232d44;
+    --badge-neutral-text: #9ca3b4;
+    --badge-info-bg: #182040;
+    --badge-info-hover: #1e2a50;
+    --badge-info-text: #7ba3d4;
+    --badge-teal-bg: #0f2a28;
+    --badge-teal-hover: #163835;
+    --badge-teal-text: #5eead4;
+    --badge-attention-bg: #1e1b3a;
+    --badge-attention-hover: #282450;
+    --badge-attention-text: #c4b5ff;
+    --badge-critical-bg: #2d1525;
+    --badge-critical-hover: #3d1e33;
+    --badge-critical-text: #f0a0c0;
 
     /* Gradient helpers */
-    --gradient-from: #0f1220;
-    --gradient-via: #171a2b;
-    --gradient-to: #0f1220;
+    --gradient-from: #0b0f1a;
+    --gradient-via: #111827;
+    --gradient-to: #0b0f1a;
 
     /* Card */
-    --background: #0f1220;
-    --foreground: #f1f3fa;
-    --card: #171a2b;
-    --card-foreground: #f1f3fa;
-    --border: #2a2f49;
+    --background: #0b0f1a;
+    --foreground: #e9ecf1;
+    --card: #111827;
+    --card-foreground: #e9ecf1;
+    --border: #232d44;
   }
 }
 
@@ -229,120 +223,75 @@
     font-family: var(--font-body), georgia, serif;
   }
 
-  /* Dark mode: background depth gradient (spec) */
+  /*
+   * Dark mode: ambient gradient orbs behind the UI.
+   * Subtle violet and blue glows give the page depth and life
+   * without overpowering the charcoal surface.
+   */
   .dark body {
-    background: radial-gradient(circle at 20% 0%, #1a1f38 0%, #0f1220 70%);
+    background:
+      radial-gradient(
+        ellipse at 15% 0%,
+        rgb(91 78 160 / 12%) 0%,
+        transparent 50%
+      ),
+      radial-gradient(
+        ellipse at 85% 100%,
+        rgb(30 64 130 / 8%) 0%,
+        transparent 50%
+      ),
+      #0b0f1a;
   }
 
-  /* Spec focus ring — applied to keyboard-reachable elements */
+  /* Accessible focus ring — WCAG 2.1 AA compliant outline */
   button:focus-visible,
   a:focus-visible,
   [tabindex]:focus-visible,
   [role="button"]:focus-visible {
-    outline: none;
-    box-shadow:
-      0 0 0 2px rgb(138 121 175 / 35%),
-      0 0 18px rgb(201 184 255 / 25%);
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
   }
 }
 
-/* ── Interaction & decoration utilities ──────────────────────── */
+/*
+ * ── Glassmorphism & interaction utilities ───────────────────
+ *
+ * 2026 dark-glass aesthetic: translucent surfaces over ambient
+ * gradients, backdrop-blur, soft borders, deep layered shadows.
+ * Light mode keeps traditional opaque cards with subtle depth.
+ */
 @layer utilities {
-  /* Card shadow — spec: 0 8px 24px rgba(0,0,0,0.35) for dark */
-  .shadow-card {
-    box-shadow: 0 2px 8px rgb(0 0 0 / 8%);
+  /* ── Glass card treatment (dark mode only) ─────────────── */
+  .glass-surface {
+    /* Light mode: no-op, cards are opaque */
   }
 
-  .dark .shadow-card {
-    box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
-  }
-
-  /* Card hover elevation — blur +20% (24→29), spread unchanged */
-  .shadow-card-hover {
-    box-shadow: 0 4px 12px rgb(0 0 0 / 12%);
-  }
-
-  .dark .shadow-card-hover {
-    box-shadow: 0 8px 29px rgb(0 0 0 / 35%);
-  }
-
-  /* Glow — spec: focus ring / active badge / hover on primary interactive */
-  .glow-accent {
+  .dark .glass-surface {
+    /* stylelint-disable-next-line property-no-vendor-prefix -- Safari requires -webkit- prefix for backdrop-filter */
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
     box-shadow:
-      0 0 0 2px rgb(138 121 175 / 35%),
-      0 0 18px rgb(201 184 255 / 25%);
+      0 8px 32px rgb(0 0 0 / 30%),
+      inset 0 1px 0 rgb(255 255 255 / 5%);
+    border-color: rgb(255 255 255 / 8%);
+    background: rgb(255 255 255 / 4%);
   }
 
-  /* Stronger glow for selected state */
-  .glow-accent-strong {
-    box-shadow:
-      0 0 0 2px rgb(138 121 175 / 50%),
-      0 0 18px rgb(201 184 255 / 35%);
+  /* ── Glass panel (sidebar, larger surfaces) ────────────── */
+  .glass-panel {
+    /* Light mode: standard surface */
   }
 
-  /*
-   * Card interactive: handles hover lift + soft glow.
-   * Applied on all QueueCards; hover state managed in CSS (not JS).
-   */
-  .card-interactive {
-    transition:
-      box-shadow 0.2s ease,
-      transform 0.2s ease;
-    box-shadow: 0 2px 8px rgb(0 0 0 / 8%);
+  .dark .glass-panel {
+    /* stylelint-disable-next-line property-no-vendor-prefix -- Safari requires -webkit- prefix for backdrop-filter */
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    border-color: rgb(255 255 255 / 6%);
+    background: rgb(17 24 39 / 80%);
   }
 
-  .dark .card-interactive {
-    box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
-  }
-
-  .card-interactive:hover {
-    transform: translateY(-1px);
-    box-shadow:
-      0 0 0 1px rgb(138 121 175 / 25%),
-      0 4px 12px rgb(0 0 0 / 12%),
-      0 0 14px rgb(201 184 255 / 12%);
-  }
-
-  .dark .card-interactive:hover {
-    transform: translateY(-1px);
-    box-shadow:
-      0 0 0 1px rgb(138 121 175 / 25%),
-      0 10px 29px rgb(0 0 0 / 35%),
-      0 0 14px rgb(201 184 255 / 15%);
-  }
-
-  /*
-   * Selected card: accent_deep → gradient start
-   * Uses spec colors only; both stops pass WCAG AA with --text-primary.
-   * CSS variable overrides ensure readable text on the gradient background.
-   */
-  .card-selected {
-    box-shadow:
-      0 0 0 2px rgb(138 121 175 / 50%),
-      0 0 18px rgb(201 184 255 / 35%);
-    background-color: var(--accent-soft);
-  }
-
-  .dark .card-selected {
-    background: linear-gradient(135deg, #5a496f 0%, #6e5a86 100%);
-
-    /* Override text tokens within this context for contrast on gradient */
-    --text-primary: #f1f3fa;
-    --text-secondary: #e2def5;
-    --text-muted: rgb(241 243 250 / 75%);
-
-    box-shadow:
-      0 0 0 2px rgb(138 121 175 / 50%),
-      0 0 18px rgb(201 184 255 / 35%);
-  }
-
-  /*
-   * Header gradient:
-   * Light mode: subtle surface sweep (unchanged from previous design)
-   * Dark mode: spec primary accent gradient with local text overrides for
-   *            WCAG-compliant contrast on the light end of the gradient.
-   */
-  .header-gradient {
+  /* ── Header glass bar ──────────────────────────────────── */
+  .header-glass {
     background: linear-gradient(
       to right,
       var(--surface-secondary),
@@ -351,16 +300,57 @@
     );
   }
 
-  .dark .header-gradient {
-    background: linear-gradient(135deg, #6e5a86 0%, #8a79af 50%, #b4a8d6 100%);
+  .dark .header-glass {
+    /* stylelint-disable-next-line property-no-vendor-prefix -- Safari requires -webkit- prefix for backdrop-filter */
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    box-shadow: 0 4px 24px rgb(0 0 0 / 25%);
+    border-color: rgb(255 255 255 / 8%);
+    background: linear-gradient(
+      135deg,
+      rgb(30 40 70 / 90%) 0%,
+      rgb(40 35 75 / 80%) 50%,
+      rgb(25 35 65 / 90%) 100%
+    );
+  }
 
-    /* Cascade text token overrides so component classes need no changes */
-    --text-primary: #fff;
-    --text-secondary: rgb(255 255 255 / 85%);
-    --text-muted: rgb(255 255 255 / 70%);
-    --accent-primary: rgb(255 255 255 / 90%);
-    --accent-hover: #fff;
-    --surface-border: rgb(255 255 255 / 30%);
-    --surface-secondary: rgb(255 255 255 / 8%);
+  /* ── Card hover lift ───────────────────────────────────── */
+  .card-lift {
+    transition:
+      transform 0.2s ease,
+      box-shadow 0.2s ease,
+      border-color 0.2s ease,
+      background 0.2s ease;
+  }
+
+  .card-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 28px rgb(0 0 0 / 10%);
+  }
+
+  .dark .card-lift:hover {
+    box-shadow:
+      0 12px 40px rgb(0 0 0 / 40%),
+      0 0 0 1px rgb(255 255 255 / 8%);
+    border-color: rgb(255 255 255 / 12%);
+    background: rgb(255 255 255 / 6%);
+  }
+
+  /* ── Selected card: accent-tinted glass + glow ring ────── */
+  .card-active {
+    box-shadow:
+      0 0 0 1px var(--accent-primary),
+      0 8px 24px rgb(0 0 0 / 10%);
+    border-color: var(--accent-primary);
+    background-color: var(--accent-soft);
+  }
+
+  .dark .card-active {
+    box-shadow:
+      0 0 0 1px rgb(139 126 200 / 30%),
+      0 0 20px rgb(196 181 255 / 10%),
+      0 8px 32px rgb(0 0 0 / 30%);
+    border-color: rgb(139 126 200 / 40%);
+    background: rgb(139 126 200 / 10%);
   }
 }

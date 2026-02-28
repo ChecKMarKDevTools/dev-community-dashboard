@@ -330,11 +330,11 @@ export function Dashboard() {
       {/* Left panel: Post List */}
       <div
         className={cn(
-          "border-surface-border bg-paper-clue flex w-full flex-col border-r transition-all duration-300",
+          "border-surface-border glass-panel bg-paper-clue flex w-full flex-col border-r transition-all duration-300",
           selectedPostId ? "hidden md:flex md:w-1/2 lg:w-4/12" : "w-full",
         )}
       >
-        <div className="header-gradient border-surface-border border-b p-6">
+        <div className="header-glass border-surface-border border-b p-6">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="font-heading text-text-primary text-2xl font-bold tracking-tight">

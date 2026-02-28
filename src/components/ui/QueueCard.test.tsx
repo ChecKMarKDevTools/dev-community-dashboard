@@ -30,8 +30,7 @@ describe("QueueCard", () => {
       </QueueCard>,
     );
     const card = screen.getByRole("button");
-    expect(card.className).toContain("card-selected");
-    expect(card.className).toContain("border-transparent");
+    expect(card.className).toContain("card-active");
   });
 
   it("applies unselected styles when selected is false", () => {
@@ -42,7 +41,7 @@ describe("QueueCard", () => {
     );
     const card = screen.getByRole("button");
     expect(card.className).toContain("bg-paper-clue");
-    expect(card.className).not.toContain("card-selected");
+    expect(card.className).not.toContain("card-active");
   });
 
   it("applies custom className", () => {

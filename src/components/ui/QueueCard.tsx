@@ -18,8 +18,8 @@ export function QueueCard({
   return (
     <Card
       className={cn(
-        "border-surface-border card-interactive cursor-pointer",
-        selected ? "card-selected border-transparent" : "bg-paper-clue",
+        "card-lift cursor-pointer transition-all duration-200",
+        selected ? "card-active" : "bg-paper-clue hover:border-surface-raised",
         className,
       )}
       onClick={onClick}
