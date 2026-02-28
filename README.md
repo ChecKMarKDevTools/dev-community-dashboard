@@ -35,7 +35,7 @@ graph TB
 
 ### Background Sync Flow
 
-Triggered by the GitHub Actions cron or `workflow_dispatch`. Each run fetches up to 200 articles (2 pages), filters to the 2-72h window, light-scores and shortlists top candidates, deep-fetches comments, classifies into categories, and upserts results.
+Triggered by the GitHub Actions cron or `workflow_dispatch`. Each run fetches articles page-by-page (100/page) until the oldest article on a page exceeds the 7-day (168 h) sync window, filters to the 2 h – 168 h age range, deep-scores every valid article, and upserts results.
 
 ```mermaid
 sequenceDiagram
@@ -46,10 +46,10 @@ sequenceDiagram
   participant SB as Supabase
 
   GHA->>Cron: POST (Authorization: Bearer)
-  Cron->>Sync: syncArticles(5)
-  Sync->>FC: getLatestArticles(page 1-2, 100 each)
-  FC-->>Sync: ForemArticle[] (up to 200)
-  Note over Sync: Filter 2-72h window, light-score, shortlist top N
+  Cron->>Sync: syncArticles()
+  Sync->>FC: getLatestArticles(page N, 100) [loop until age > 168h]
+  FC-->>Sync: ForemArticle[] (all valid articles in 7-day window)
+  Note over Sync: Filter 2h–168h window, light-score all, deep-process all
 
   loop For each shortlisted article
     Sync->>FC: getUserByUsername(author) [cached]
@@ -81,10 +81,10 @@ sequenceDiagram
 
   U->>D: Open dashboard
   D->>Posts: fetch()
-  Posts->>SB: SELECT articles ORDER BY score DESC LIMIT 100
+  Posts->>SB: SELECT articles WHERE published_at >= now-168h ORDER BY (non-NORMAL first, score DESC) LIMIT 50
   SB-->>Posts: scored article rows
   Posts-->>D: article list
-  D-->>U: Ranked list with category badges (High Activity, Active Conversation, etc.)
+  D-->>U: Ranked list — actionable categories first (Community Waiting, Potential Rule Issue, etc.), then Routine Discussion
 
   U->>D: Click a post
   D->>Detail: fetch(/api/posts/42)
@@ -199,12 +199,12 @@ pnpm build            # type-check + Next.js production build
 
 ## API Reference
 
-| Method | Path              | Auth   | Description                                                        |
-| ------ | ----------------- | ------ | ------------------------------------------------------------------ |
-| `GET`  | `/api/posts`      | none   | Scored article list, ordered by score desc, limit 100              |
-| `GET`  | `/api/posts/:id`  | none   | Article detail + 5 most recent posts by same author                |
-| `POST` | `/api/cron`       | Bearer | Sync latest articles from Forem (200 articles, 2 pages)            |
-| `POST` | `/api/admin/seed` | Bearer | Back-fill articles; body `{ "days": N }` (integer 1–90, default 3) |
+| Method | Path              | Auth   | Description                                                       |
+| ------ | ----------------- | ------ | ----------------------------------------------------------------- |
+| `GET`  | `/api/posts`      | none   | Top 50 articles (7-day window), non-NORMAL first, then score desc |
+| `GET`  | `/api/posts/:id`  | none   | Article detail + 5 most recent posts by same author               |
+| `POST` | `/api/cron`       | Bearer | Sync all articles in the 7-day window from Forem                  |
+| `POST` | `/api/admin/seed` | Bearer | Same as cron — populate the database on first deploy              |
 
 ---
 

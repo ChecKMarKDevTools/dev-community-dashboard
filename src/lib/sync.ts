@@ -504,7 +504,7 @@ async function fetchAndFilterArticles(): Promise<{
 
     // The batch is newest-first; the last item is the oldest on this page.
     // If it's already outside our window, all subsequent pages will be too.
-    const oldestOnPage = batch[batch.length - 1];
+    const oldestOnPage = batch.at(-1)!;
     if (getAgeHours(oldestOnPage.published_at) > SYNC_WINDOW_HOURS) break;
 
     page++;
@@ -608,7 +608,7 @@ export async function syncArticles(maxToProcess?: number): Promise<SyncResult> {
     // In production maxToProcess is undefined → process all valid articles.
     // In tests it is set to a small number to keep suites fast.
     const toProcess =
-      maxToProcess !== undefined ? shortlist.slice(0, maxToProcess) : shortlist;
+      maxToProcess === undefined ? shortlist : shortlist.slice(0, maxToProcess);
 
     let synced = 0;
     let failed = 0;
