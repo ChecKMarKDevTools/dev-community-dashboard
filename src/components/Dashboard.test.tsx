@@ -56,7 +56,7 @@ describe("Dashboard Component", () => {
     Object.defineProperty(globalThis, "matchMedia", {
       writable: true,
       value: vi.fn().mockImplementation((query: string) => ({
-        matches: query.includes("dark") ? false : false,
+        matches: false,
         media: query,
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),
@@ -773,7 +773,7 @@ describe("Dashboard Component", () => {
     // NORMAL attention_level maps to "Routine Discussion" label
     // The badge in the recent posts section uses getCategoryLabel(rp.attention_level)
     const recentCard = screen.getByText("Previous post").closest(".border")!;
-    const badge = recentCard.querySelector(".text-\\[10px\\]");
+    const badge = recentCard.querySelector(String.raw`.text-\[10px\]`);
     expect(badge?.textContent).toBe("Routine Discussion");
   });
 

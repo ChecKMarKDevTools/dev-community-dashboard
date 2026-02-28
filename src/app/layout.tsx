@@ -25,9 +25,9 @@ const themeScript = `
 (function(){
   try {
     var t = localStorage.getItem("theme");
-    if (t === "dark" || (!t && matchMedia("(prefers-color-scheme:dark)").matches)) {
-      document.documentElement.classList.add("dark");
-    }
+    var prefersDark = matchMedia("(prefers-color-scheme:dark)").matches;
+    var isDark = t === "dark" || (t !== "light" && prefersDark);
+    document.documentElement.classList.toggle("dark", isDark);
   } catch(e) {}
 })();
 `;

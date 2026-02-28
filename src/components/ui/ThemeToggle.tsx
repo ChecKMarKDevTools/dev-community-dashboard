@@ -52,7 +52,11 @@ export function ThemeToggle({ className }: ThemeToggleProps) {
   const cycle = () => {
     const next = CYCLE[(CYCLE.indexOf(theme) + 1) % CYCLE.length];
     setTheme(next);
-    localStorage.setItem("theme", next);
+    try {
+      localStorage.setItem("theme", next);
+    } catch {
+      /* localStorage may be unavailable in privacy mode or restricted environments */
+    }
     applyTheme(next);
   };
 
