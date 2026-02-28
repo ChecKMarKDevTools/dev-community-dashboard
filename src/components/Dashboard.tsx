@@ -292,8 +292,11 @@ export function Dashboard() {
 
   React.useEffect(() => {
     fetch("/api/posts")
-      .then((res) => res.json())
-      .then((data) => {
+      .then((res) => {
+        if (!res.ok) throw new Error(`API error ${res.status}`);
+        return res.json();
+      })
+      .then((data: Post[]) => {
         setPosts(data);
         setLoading(false);
       })

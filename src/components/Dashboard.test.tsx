@@ -65,7 +65,7 @@ describe("Dashboard Component", () => {
   it("fetches and renders a list of posts", async () => {
     globalThis.fetch = vi
       .fn()
-      .mockResolvedValue({ json: async () => mockPosts });
+      .mockResolvedValue({ ok: true, json: async () => mockPosts });
     render(<Dashboard />);
 
     await waitFor(() => {
@@ -80,9 +80,9 @@ describe("Dashboard Component", () => {
   it("handles post selection and fetching details", async () => {
     globalThis.fetch = vi.fn().mockImplementation((url) => {
       if (url === "/api/posts")
-        return Promise.resolve({ json: async () => mockPosts });
+        return Promise.resolve({ ok: true, json: async () => mockPosts });
       if (url === "/api/posts/post-1")
-        return Promise.resolve({ json: async () => mockPostDetails });
+        return Promise.resolve({ ok: true, json: async () => mockPostDetails });
       return Promise.reject(new Error("Not found"));
     });
 
@@ -106,7 +106,9 @@ describe("Dashboard Component", () => {
   });
 
   it("handles empty post list", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({ json: async () => [] });
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => [] });
 
     render(<Dashboard />);
 

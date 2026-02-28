@@ -108,14 +108,23 @@ describe("GET /api/posts", () => {
     expect(json.error).toBe("DB connection failed");
   });
 
-  it("returns 500 with 'Unknown error' when error is not an Error instance", async () => {
-    buildChain({ data: null, error: { code: "PGRST116" } });
+  it("returns 500 with message from PostgrestError (non-Error instance)", async () => {
+    // Real Supabase PostgrestError has message, code, details, hint fields
+    buildChain({
+      data: null,
+      error: {
+        message: "relation not found",
+        code: "PGRST116",
+        details: null,
+        hint: null,
+      },
+    });
 
     const res = await GET();
     const json = await res.json();
 
     expect(res.status).toBe(500);
-    expect(json.error).toBe("Unknown error");
+    expect(json.error).toBe("relation not found");
   });
 
   it("returns 500 when supabase.from throws synchronously", async () => {

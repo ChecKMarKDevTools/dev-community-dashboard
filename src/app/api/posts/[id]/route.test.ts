@@ -256,11 +256,20 @@ describe("GET /api/posts/[id]", () => {
     expect(json.error).toBe("Recent posts DB error");
   });
 
-  it("returns 500 with 'Unknown error' when recentError is not an Error instance", async () => {
+  it("returns 500 with message from PostgrestError (non-Error instance)", async () => {
     const article = { id: 11, author: "u" };
+    // Real Supabase PostgrestError has message, code, details, hint fields
     buildChain(
       { data: article, error: null },
-      { data: null, error: { code: "42P01" } },
+      {
+        data: null,
+        error: {
+          message: "undefined table",
+          code: "42P01",
+          details: null,
+          hint: null,
+        },
+      },
     );
 
     const req = new NextRequest("http://localhost:3000/api/posts/11");
@@ -268,7 +277,7 @@ describe("GET /api/posts/[id]", () => {
     const json = await res.json();
 
     expect(res.status).toBe(500);
-    expect(json.error).toBe("Unknown error");
+    expect(json.error).toBe("undefined table");
   });
 
   it("returns 500 when supabase.from throws synchronously", async () => {

@@ -9,7 +9,11 @@ export async function GET() {
       .order("score", { ascending: false })
       .limit(100);
 
-    if (error) throw error;
+    if (error) {
+      // PostgrestError is not an Error instance; handle it directly
+      console.error("Failed to fetch posts", error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
     return NextResponse.json(data);
   } catch (error: unknown) {

@@ -33,14 +33,9 @@ export async function GET(
     .limit(5);
 
   if (recentError) {
+    // PostgrestError is not an Error instance; use .message directly
     console.error(`Failed to fetch post ${rawId}`, recentError);
-    return NextResponse.json(
-      {
-        error:
-          recentError instanceof Error ? recentError.message : "Unknown error",
-      },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: recentError.message }, { status: 500 });
   }
 
   // Flatten article fields with recent_posts so the Dashboard's PostDetails
