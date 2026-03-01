@@ -99,17 +99,23 @@ function makeComment(overrides: Partial<ForemComment> = {}): ForemComment {
   };
 }
 
-/** Resets the supabase.from mock to return a fresh upsert chain.
- *  The select chain (select → eq → gte) resolves to empty data so the
- *  backfillEmptyMetrics step is a no-op in unit tests. */
+/** Resets the supabase.from mock to return a fresh upsert/select/delete chain.
+ *  - select → eq → gte resolves to empty data (backfill is a no-op)
+ *  - delete → lt → select resolves to empty data (purge is a no-op) */
 function resetSupabaseMock() {
   const selectChain = {
     eq: vi.fn().mockReturnThis(),
     gte: vi.fn().mockResolvedValue({ data: [], error: null }),
   };
+  const deleteChain = {
+    lt: vi.fn().mockReturnValue({
+      select: vi.fn().mockResolvedValue({ data: [], error: null }),
+    }),
+  };
   vi.mocked(supabase.from).mockReturnValue({
     upsert: vi.fn().mockResolvedValue({ error: null }),
     select: vi.fn().mockReturnValue(selectChain),
+    delete: vi.fn().mockReturnValue(deleteChain),
   } as never);
 }
 
@@ -516,8 +522,8 @@ describe("syncArticles scoring pipeline", () => {
 
   // ── Edge cases ─────────────────────────────────────────────────────────
 
-  it("returns zero synced when article is older than the 168-hour sync window", async () => {
-    // 200 hours = > 7 days, outside SYNC_WINDOW_HOURS
+  it("returns zero synced when article is older than the 120-hour sync window", async () => {
+    // 200 hours = > 5 days, outside SYNC_WINDOW_HOURS
     const article = makeArticle({
       id: 70,
       published_at: new Date(NOW - 200 * 60 * 60 * 1000).toISOString(),
@@ -531,11 +537,11 @@ describe("syncArticles scoring pipeline", () => {
     expect(result.failed).toBe(0);
   });
 
-  it("syncs articles at exactly the 168-hour boundary (inclusive lower edge)", async () => {
-    // 167 hours — just inside the window
+  it("syncs articles at exactly the 120-hour boundary (inclusive lower edge)", async () => {
+    // 119 hours — just inside the window
     const article = makeArticle({
       id: 72,
-      published_at: new Date(NOW - 167 * 60 * 60 * 1000).toISOString(),
+      published_at: new Date(NOW - 119 * 60 * 60 * 1000).toISOString(),
     });
 
     setupBasicMocks([article]);
@@ -1254,6 +1260,70 @@ describe("syncArticles scoring pipeline", () => {
         (r.value as { upsert: ReturnType<typeof vi.fn> }).upsert,
     );
     expect(articleUpsertCall).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Purge stale articles
+// ---------------------------------------------------------------------------
+
+describe("syncArticles — purge step", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("includes purge count in errors array when stale articles are deleted (production path)", async () => {
+    const article = makeArticle({ id: 900 });
+
+    vi.mocked(ForemClient.getLatestArticles).mockImplementation(
+      async (page) => {
+        if (page === 1) return [article] as never;
+        return [];
+      },
+    );
+    vi.mocked(ForemClient.getArticle).mockImplementation(
+      async (id: number) => makeArticle({ id }) as never,
+    );
+    vi.mocked(ForemClient.getUserByUsername).mockResolvedValue(mockUser);
+    vi.mocked(ForemClient.getComments).mockResolvedValue([]);
+
+    // Mock select chain (backfill returns empty) and delete chain (purge returns 2 rows)
+    const selectChain = {
+      eq: vi.fn().mockReturnThis(),
+      gte: vi.fn().mockResolvedValue({ data: [], error: null }),
+    };
+    const deleteChain = {
+      lt: vi.fn().mockReturnValue({
+        select: vi.fn().mockResolvedValue({
+          data: [{ id: 101 }, { id: 102 }],
+          error: null,
+        }),
+      }),
+    };
+    vi.mocked(supabase.from).mockReturnValue({
+      upsert: vi.fn().mockResolvedValue({ error: null }),
+      select: vi.fn().mockReturnValue(selectChain),
+      delete: vi.fn().mockReturnValue(deleteChain),
+    } as never);
+
+    // No maxToProcess → production path (includes purge)
+    const result = await syncArticles();
+
+    expect(result.synced).toBe(1);
+    expect(result.errors).toContainEqual(
+      expect.stringContaining("Purged 2 stale articles"),
+    );
+  });
+
+  it("skips purge when maxToProcess is set (test path)", async () => {
+    const article = makeArticle({ id: 910 });
+
+    setupBasicMocks([article]);
+
+    const result = await syncArticles(1);
+
+    // With maxToProcess set, purge is skipped — no purge message in errors
+    expect(result.errors).not.toContainEqual(expect.stringContaining("Purged"));
   });
 });
 

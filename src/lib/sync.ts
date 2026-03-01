@@ -16,10 +16,12 @@ export interface SyncResult {
 
 /**
  * Maximum age of articles to consider for scoring.
- * 7 days covers the community week-in-review horizon and aligns with
- * the display window. Anything older is no longer actionable by moderators.
+ * 5 days matches the purge horizon — anything older is deleted after sync.
  */
-export const SYNC_WINDOW_HOURS = 168; // 7 days
+export const SYNC_WINDOW_HOURS = 120; // 5 days
+
+/** Articles older than this are purged after each sync run. */
+export const PURGE_AGE_HOURS = 120; // 5 days
 
 /**
  * Forem API hard limit: 30 requests per 30 seconds.
@@ -787,6 +789,30 @@ async function ensureAuthorUpserted(
 }
 
 /**
+ * Delete articles published more than PURGE_AGE_HOURS ago.
+ * The commenters table has ON DELETE CASCADE, so child rows are cleaned up
+ * automatically. Returns the count of deleted rows.
+ */
+async function purgeStaleArticles(): Promise<number> {
+  const cutoff = new Date(
+    Date.now() - PURGE_AGE_HOURS * 60 * 60 * 1000,
+  ).toISOString();
+
+  const { data, error } = await supabase
+    .from("articles")
+    .delete()
+    .lt("published_at", cutoff)
+    .select("id");
+
+  if (error) {
+    console.error("Purge failed:", error.message);
+    return 0;
+  }
+
+  return data?.length ?? 0;
+}
+
+/**
  * Backfill articles that were persisted with empty metrics (e.g. because the
  * metrics column did not exist in PostgREST's cached schema at the time of the
  * original sync, or because the paginated API didn't return them).
@@ -863,9 +889,10 @@ async function backfillEmptyMetrics(
 /**
  * Main sync entry point.
  *
- * Fetches all articles published within the last SYNC_WINDOW_HOURS (7 days),
- * deep-scores every one of them, and upserts results to Supabase. No article
- * cap is applied here — the display limit is handled at query time.
+ * Fetches all articles published within the last SYNC_WINDOW_HOURS (5 days),
+ * deep-scores every one of them, upserts results to Supabase, backfills any
+ * articles with empty metrics, and purges articles older than PURGE_AGE_HOURS.
+ * No article cap is applied — the display limit is handled at query time.
  *
  * The optional `maxToProcess` parameter exists solely for unit tests so they
  * can keep test suites fast without fetching a full week of data.
@@ -936,6 +963,17 @@ export async function syncArticles(maxToProcess?: number): Promise<SyncResult> {
       synced += backfillResult.synced;
       failed += backfillResult.failed;
       errors.push(...backfillResult.errors);
+    }
+
+    // Purge: remove articles older than PURGE_AGE_HOURS. The commenters
+    // table cascades on article delete, so no separate cleanup is needed.
+    if (maxToProcess === undefined) {
+      const purged = await purgeStaleArticles();
+      if (purged > 0) {
+        errors.push(
+          `Purged ${purged} stale articles (> ${PURGE_AGE_HOURS}h old)`,
+        );
+      }
     }
 
     return { synced, failed, errors };

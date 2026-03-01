@@ -171,9 +171,15 @@ function buildCronMocks(articleCount: number) {
     eq: vi.fn().mockReturnThis(),
     gte: vi.fn().mockResolvedValue({ data: [], error: null }),
   };
+  const deleteChain = {
+    lt: vi.fn().mockReturnValue({
+      select: vi.fn().mockResolvedValue({ data: [], error: null }),
+    }),
+  };
   (supabase.from as Mock).mockReturnValue({
     upsert: vi.fn().mockResolvedValue({ data: null, error: null }),
     select: vi.fn().mockReturnValue(selectChain),
+    delete: vi.fn().mockReturnValue(deleteChain),
   });
   return articles;
 }
