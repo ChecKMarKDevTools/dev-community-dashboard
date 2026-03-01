@@ -17,12 +17,12 @@ export interface SyncResult {
 
 /**
  * Maximum age of articles to consider for scoring.
- * 5 days matches the purge horizon — anything older is deleted after sync.
+ * 5 days — articles older than this are outside the scoring window.
  */
 export const SYNC_WINDOW_HOURS = 120; // 5 days
 
-/** Articles older than this are purged after each sync run. */
-export const PURGE_AGE_HOURS = 120; // 5 days
+/** Articles older than this are purged at the start of each sync run. */
+export const PURGE_AGE_HOURS = 240; // 10 days
 
 /**
  * Forem API hard limit: 30 requests per 30 seconds.
@@ -901,7 +901,7 @@ async function backfillEmptyMetrics(
   return { synced, failed, errors };
 }
 
-/** Post-sync maintenance: backfill empty metrics and purge stale articles. */
+/** Post-sync backfill: re-process articles with empty metrics. */
 async function runPostSyncMaintenance(
   allArticles: ForemArticle[],
   userCache: Map<string, ForemUser | null>,
@@ -919,33 +919,45 @@ async function runPostSyncMaintenance(
   result.synced += backfillResult.synced;
   result.failed += backfillResult.failed;
   result.errors.push(...backfillResult.errors);
-
-  // Purge: remove articles older than PURGE_AGE_HOURS. The commenters
-  // table cascades on article delete, so no separate cleanup is needed.
-  const purged = await purgeStaleArticles();
-  if (purged > 0) {
-    result.errors.push(
-      `Purged ${purged} stale articles (> ${PURGE_AGE_HOURS}h old)`,
-    );
-  }
 }
 
 /**
  * Main sync entry point.
  *
- * Fetches all articles published within the last SYNC_WINDOW_HOURS (5 days),
- * deep-scores every one of them, upserts results to Supabase, backfills any
- * articles with empty metrics, and purges articles older than PURGE_AGE_HOURS.
- * No article cap is applied — the display limit is handled at query time.
+ * Pipeline order (production only — `maxToProcess` undefined):
+ *   1. Purge articles older than PURGE_AGE_HOURS (10 days) so the DB is clean
+ *      before new data is scored. The commenters table cascades on delete.
+ *   2. Fetch all articles published within SYNC_WINDOW_HOURS (5 days).
+ *   3. Deep-score every valid article and upsert results to Supabase.
+ *   4. Backfill any articles that were persisted with empty metrics.
+ *
+ * No article cap is applied in production — the display limit is handled at
+ * query time by the API route.
  *
  * The optional `maxToProcess` parameter exists solely for unit tests so they
- * can keep test suites fast without fetching a full week of data.
+ * can keep test suites fast without fetching a full week of data. Passing it
+ * also skips the purge and backfill steps.
  */
 export async function syncArticles(maxToProcess?: number): Promise<SyncResult> {
   const userCache = new Map<string, ForemUser | null>();
   const upsertedAuthors = new Set<string>();
 
   try {
+    const result: SyncResult = { synced: 0, failed: 0, errors: [] };
+
+    // Step 1 (production only): purge stale articles before fetching new ones.
+    // Running purge first keeps the DB lean and avoids re-scoring rows that are
+    // about to be deleted in the same cycle.
+    if (maxToProcess === undefined) {
+      const purged = await purgeStaleArticles();
+      if (purged > 0) {
+        result.errors.push(
+          `Purged ${purged} stale articles (> ${PURGE_AGE_HOURS}h old)`,
+        );
+      }
+    }
+
+    // Step 2: fetch and filter articles within the sync window.
     const { allArticles, validArticles } = await fetchAndFilterArticles();
     const postsByAuthor24h = buildAuthorFrequencies(allArticles);
     const shortlist = lightScoreAndRank(validArticles, postsByAuthor24h);
@@ -955,8 +967,7 @@ export async function syncArticles(maxToProcess?: number): Promise<SyncResult> {
     const toProcess =
       maxToProcess === undefined ? shortlist : shortlist.slice(0, maxToProcess);
 
-    const result: SyncResult = { synced: 0, failed: 0, errors: [] };
-
+    // Step 3: deep-score and persist.
     for (const candidate of toProcess) {
       try {
         const {
@@ -993,7 +1004,7 @@ export async function syncArticles(maxToProcess?: number): Promise<SyncResult> {
       }
     }
 
-    // Production-only maintenance: backfill + purge
+    // Step 4 (production only): backfill articles with empty metrics.
     if (maxToProcess === undefined) {
       await runPostSyncMaintenance(
         allArticles,

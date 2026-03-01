@@ -1360,7 +1360,7 @@ describe("syncArticles — purge step", () => {
     vi.clearAllMocks();
   });
 
-  it("includes purge count in errors array when stale articles are deleted (production path)", async () => {
+  it("purges stale articles as the FIRST step and reports count in errors (production path)", async () => {
     const article = makeArticle({ id: 900 });
 
     vi.mocked(ForemClient.getLatestArticles).mockImplementation(
@@ -1375,7 +1375,9 @@ describe("syncArticles — purge step", () => {
     vi.mocked(ForemClient.getUserByUsername).mockResolvedValue(mockUser);
     vi.mocked(ForemClient.getComments).mockResolvedValue([]);
 
-    // Mock select chain (backfill returns empty) and delete chain (purge returns 2 rows)
+    // Mock select chain (backfill returns empty) and delete chain (purge returns 2 rows).
+    // Purge now runs FIRST (before fetchAndFilterArticles), but mockReturnValue applies
+    // to all supabase.from calls so the order does not affect the mock setup.
     const selectChain = {
       eq: vi.fn().mockReturnThis(),
       gte: vi.fn().mockResolvedValue({ data: [], error: null }),
@@ -1394,7 +1396,7 @@ describe("syncArticles — purge step", () => {
       delete: vi.fn().mockReturnValue(deleteChain),
     } as never);
 
-    // No maxToProcess → production path (includes purge)
+    // No maxToProcess → production path (purge runs first, then sync, then backfill)
     const result = await syncArticles();
 
     expect(result.synced).toBe(1);
