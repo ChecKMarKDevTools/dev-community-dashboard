@@ -98,7 +98,7 @@ describe("countSupportPhrases", () => {
     );
   });
 
-  it("returns 2 for text with two matching phrases", () => {
+  it("returns 3 for text with three matching phrases", () => {
     expect(
       countSupportPhrases(
         "I'm struggling with burnout and feeling overwhelmed",

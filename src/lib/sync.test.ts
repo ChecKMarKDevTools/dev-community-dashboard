@@ -109,13 +109,13 @@ function makeComment(overrides: Partial<ForemComment> = {}): ForemComment {
 
 /** Resets the supabase.from mock to return a fresh upsert/select/delete chain.
  *  - select → eq → gte resolves to empty data (backfill is a no-op)
- *  - select → eq → single resolves to null (no cached metrics for incremental scoring)
+ *  - select → eq → maybeSingle resolves to null (no cached metrics for incremental scoring)
  *  - delete → lt → select resolves to empty data (purge is a no-op) */
 function resetSupabaseMock() {
   const selectChain = {
     eq: vi.fn().mockReturnThis(),
     gte: vi.fn().mockResolvedValue({ data: [], error: null }),
-    single: vi.fn().mockResolvedValue({ data: null, error: null }),
+    maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
   };
   const deleteChain = {
     lt: vi.fn().mockReturnValue({
@@ -875,7 +875,7 @@ describe("syncArticles scoring pipeline", () => {
     const selectChain = {
       eq: vi.fn().mockReturnThis(),
       gte: vi.fn().mockResolvedValue({ data: [], error: null }),
-      single: vi.fn().mockResolvedValue({ data: null, error: null }),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
     };
     const deleteChain = {
       lt: vi.fn().mockReturnValue({
@@ -1232,7 +1232,9 @@ describe("syncArticles scoring pipeline", () => {
           upsert: vi.fn().mockResolvedValue({ error: null }),
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
-              single: vi.fn().mockResolvedValue({ data: null, error: null }),
+              maybeSingle: vi
+                .fn()
+                .mockResolvedValue({ data: null, error: null }),
               gte: vi.fn().mockResolvedValue({ data: [], error: null }),
             }),
           }),
@@ -1243,7 +1245,9 @@ describe("syncArticles scoring pipeline", () => {
         return {
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
-              single: vi.fn().mockResolvedValue({ data: null, error: null }),
+              maybeSingle: vi
+                .fn()
+                .mockResolvedValue({ data: null, error: null }),
             }),
           }),
         } as never;
@@ -1507,7 +1511,7 @@ describe("syncArticles — purge step", () => {
     const selectChain = {
       eq: vi.fn().mockReturnThis(),
       gte: vi.fn().mockResolvedValue({ data: [], error: null }),
-      single: vi.fn().mockResolvedValue({ data: null, error: null }),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
     };
     const deleteChain = {
       lt: vi.fn().mockReturnValue({
@@ -1555,7 +1559,7 @@ describe("syncArticles — purge step", () => {
     const selectChain = {
       eq: vi.fn().mockReturnThis(),
       gte: vi.fn().mockResolvedValue({ data: [], error: null }),
-      single: vi.fn().mockResolvedValue({ data: null, error: null }),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
     };
     const deleteChain = {
       lt: vi.fn().mockReturnValue({
@@ -1616,7 +1620,7 @@ describe("syncArticles — backfill step", () => {
       select: vi.fn().mockReturnValue({
         eq: vi.fn().mockReturnThis(),
         gte: vi.fn().mockResolvedValue({ data: [], error: null }),
-        single: vi.fn().mockResolvedValue({ data: null, error: null }),
+        maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
       }),
       delete: vi.fn().mockReturnValue(purgeChain),
     };
@@ -2359,11 +2363,13 @@ describe("computeVolatilityFromScores", () => {
 // ---------------------------------------------------------------------------
 
 describe("incremental LLM scoring", () => {
-  // Mirrors hashText() in sync.ts for creating test fixture body_hash values.
+  // Mirrors hashText() in sync.ts — iterates Unicode code points (for...of)
+  // so surrogate pairs (emoji, non-BMP CJK) are counted exactly once, matching
+  // the production implementation that was fixed in a prior commit.
   function djb2Hash(text: string): string {
     let hash = 0;
-    for (let i = 0; i < text.length; i++) {
-      hash = ((hash << 5) - hash + text.charCodeAt(i)) >>> 0;
+    for (const char of text) {
+      hash = ((hash << 5) - hash + (char.codePointAt(0) ?? 0)) >>> 0;
     }
     return hash.toString(16);
   }
@@ -2424,7 +2430,7 @@ describe("incremental LLM scoring", () => {
     const selectChain = {
       eq: vi.fn().mockReturnThis(),
       gte: vi.fn().mockResolvedValue({ data: [], error: null }),
-      single: vi.fn().mockResolvedValue({
+      maybeSingle: vi.fn().mockResolvedValue({
         data: existingMetrics ? { metrics: existingMetrics } : null,
         error: null,
       }),
