@@ -7,6 +7,7 @@ import {
   buildSentimentSpread,
   buildSentimentSpreadFromScores,
   buildArticleMetrics,
+  computeVolatilityFromScores,
 } from "./sync";
 import { analyzeSentimentBatch } from "./openai";
 import { ForemUser, ForemComment, ForemClient } from "./forem";
@@ -107,11 +108,13 @@ function makeComment(overrides: Partial<ForemComment> = {}): ForemComment {
 
 /** Resets the supabase.from mock to return a fresh upsert/select/delete chain.
  *  - select → eq → gte resolves to empty data (backfill is a no-op)
+ *  - select → eq → single resolves to null (no cached metrics for incremental scoring)
  *  - delete → lt → select resolves to empty data (purge is a no-op) */
 function resetSupabaseMock() {
   const selectChain = {
     eq: vi.fn().mockReturnThis(),
     gte: vi.fn().mockResolvedValue({ data: [], error: null }),
+    single: vi.fn().mockResolvedValue({ data: null, error: null }),
   };
   const deleteChain = {
     lt: vi.fn().mockReturnValue({
@@ -871,6 +874,7 @@ describe("syncArticles scoring pipeline", () => {
     const selectChain = {
       eq: vi.fn().mockReturnThis(),
       gte: vi.fn().mockResolvedValue({ data: [], error: null }),
+      single: vi.fn().mockResolvedValue({ data: null, error: null }),
     };
     const deleteChain = {
       lt: vi.fn().mockReturnValue({
@@ -1225,7 +1229,22 @@ describe("syncArticles scoring pipeline", () => {
         // User upsert succeeds
         return {
           upsert: vi.fn().mockResolvedValue({ error: null }),
-          select: vi.fn().mockReturnThis(),
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              single: vi.fn().mockResolvedValue({ data: null, error: null }),
+              gte: vi.fn().mockResolvedValue({ data: [], error: null }),
+            }),
+          }),
+        } as never;
+      }
+      if (callCount === 2) {
+        // Incremental scoring SELECT for existing article metrics
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              single: vi.fn().mockResolvedValue({ data: null, error: null }),
+            }),
+          }),
         } as never;
       }
       // Article upsert fails
@@ -1487,6 +1506,7 @@ describe("syncArticles — purge step", () => {
     const selectChain = {
       eq: vi.fn().mockReturnThis(),
       gte: vi.fn().mockResolvedValue({ data: [], error: null }),
+      single: vi.fn().mockResolvedValue({ data: null, error: null }),
     };
     const deleteChain = {
       lt: vi.fn().mockReturnValue({
@@ -1534,6 +1554,7 @@ describe("syncArticles — purge step", () => {
     const selectChain = {
       eq: vi.fn().mockReturnThis(),
       gte: vi.fn().mockResolvedValue({ data: [], error: null }),
+      single: vi.fn().mockResolvedValue({ data: null, error: null }),
     };
     const deleteChain = {
       lt: vi.fn().mockReturnValue({
@@ -1594,6 +1615,7 @@ describe("syncArticles — backfill step", () => {
       select: vi.fn().mockReturnValue({
         eq: vi.fn().mockReturnThis(),
         gte: vi.fn().mockResolvedValue({ data: [], error: null }),
+        single: vi.fn().mockResolvedValue({ data: null, error: null }),
       }),
       delete: vi.fn().mockReturnValue(purgeChain),
     };
@@ -2144,7 +2166,9 @@ describe("LLM sentiment integration", () => {
 
   it("calls analyzeSentimentBatch during sync and falls back to keywords on null", async () => {
     const article = makeArticle({ id: 900 });
-    setupBasicMocks([article]);
+    // Provide a comment so there is at least one new/uncached text to score.
+    const comment = makeComment({ body_html: "<p>interesting point</p>" });
+    setupBasicMocks([article], [comment]);
 
     // Default mock returns null → keyword fallback
     const result = await syncArticles(1);
@@ -2173,5 +2197,274 @@ describe("LLM sentiment integration", () => {
       expect.any(String),
       expect.arrayContaining([expect.any(String)]),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeVolatilityFromScores
+// ---------------------------------------------------------------------------
+
+describe("computeVolatilityFromScores", () => {
+  it("returns 0 for empty input", () => {
+    expect(computeVolatilityFromScores([])).toBe(0);
+  });
+
+  it("returns 0 for a single score", () => {
+    expect(computeVolatilityFromScores([0.5])).toBe(0);
+  });
+
+  it("returns 0 when all scores are identical", () => {
+    expect(computeVolatilityFromScores([0.3, 0.3, 0.3])).toBe(0);
+  });
+
+  it("clamps to 1 for extreme opposite scores", () => {
+    // std dev of [-1, 1] = 1.0
+    const result = computeVolatilityFromScores([-1, 1]);
+    expect(result).toBe(1);
+  });
+
+  it("returns std dev clamped to [0, 1] for mixed scores", () => {
+    // scores: [0, 0.5, 1] — mean = 0.5, variance = (0.25+0+0.25)/3 ≈ 0.1667, std ≈ 0.408
+    const result = computeVolatilityFromScores([0, 0.5, 1]);
+    expect(result).toBeGreaterThan(0);
+    expect(result).toBeLessThanOrEqual(1);
+    expect(result).toBeCloseTo(Math.sqrt((0.25 + 0 + 0.25) / 3), 5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Incremental LLM scoring
+// ---------------------------------------------------------------------------
+
+describe("incremental LLM scoring", () => {
+  // Mirrors hashText() in sync.ts for creating test fixture body_hash values.
+  function djb2Hash(text: string): string {
+    let hash = 0;
+    for (let i = 0; i < text.length; i++) {
+      hash = ((hash << 5) - hash + text.charCodeAt(i)) >>> 0;
+    }
+    return hash.toString(16);
+  }
+
+  function stripHtml(html: string): string {
+    let out = "";
+    let inTag = false;
+    for (const ch of html) {
+      if (ch === "<") {
+        inTag = true;
+      } else if (ch === ">") {
+        inTag = false;
+      } else if (!inTag) {
+        out += ch;
+      }
+    }
+    return out;
+  }
+
+  /** Compute the expected body_hash for a given raw body_html (mirrors sync.ts). */
+  function bodyHash(bodyHtml: string): string {
+    return djb2Hash(stripHtml(bodyHtml));
+  }
+
+  /** Set up mocks so the articles SELECT for existing metrics returns specific data. */
+  function setupMockWithCachedMetrics(
+    articles: Record<string, unknown>[],
+    comments: ForemComment[],
+    cachedSentimentScores: Array<{
+      index: number;
+      score: number;
+      id_code: string;
+      body_hash: string;
+    }> | null,
+  ) {
+    vi.mocked(ForemClient.getLatestArticles).mockImplementation(
+      async (page) => {
+        if (page === 1) return articles as never;
+        return [];
+      },
+    );
+    vi.mocked(ForemClient.getArticle).mockImplementation(
+      async (id: number, _?: boolean) => {
+        const article = articles.find((a) => a.id === id);
+        return (article || makeArticle({ id })) as never;
+      },
+    );
+    vi.mocked(ForemClient.getUserByUsername).mockResolvedValue(mockUser);
+    vi.mocked(ForemClient.getComments).mockResolvedValue(comments);
+
+    const existingMetrics =
+      cachedSentimentScores !== null
+        ? { sentiment_scores: cachedSentimentScores }
+        : null;
+
+    const selectChain = {
+      eq: vi.fn().mockReturnThis(),
+      gte: vi.fn().mockResolvedValue({ data: [], error: null }),
+      single: vi.fn().mockResolvedValue({
+        data: existingMetrics ? { metrics: existingMetrics } : null,
+        error: null,
+      }),
+    };
+    const deleteChain = {
+      lt: vi.fn().mockReturnValue({
+        select: vi.fn().mockResolvedValue({ data: [], error: null }),
+      }),
+    };
+    vi.mocked(supabase.from).mockReturnValue({
+      upsert: vi.fn().mockResolvedValue({ error: null }),
+      select: vi.fn().mockReturnValue(selectChain),
+      delete: vi.fn().mockReturnValue(deleteChain),
+    } as never);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("skips LLM call when all comments are cached with matching body hashes", async () => {
+    const cachedBodyHtml = "<p>cached comment text</p>";
+    const comment = makeComment({
+      id_code: "inc1",
+      body_html: cachedBodyHtml,
+    });
+    const article = makeArticle({ id: 800 });
+
+    setupMockWithCachedMetrics(
+      [article],
+      [comment],
+      [
+        {
+          index: 0,
+          score: 0.5,
+          id_code: "inc1",
+          body_hash: bodyHash(cachedBodyHtml),
+        },
+      ],
+    );
+
+    // analyzeSentimentBatch default mock returns null; we verify it is never called
+    vi.mocked(analyzeSentimentBatch).mockResolvedValue(null);
+
+    const result = await syncArticles(1);
+
+    expect(result.synced).toBe(1);
+    expect(result.failed).toBe(0);
+    // All comments hit the cache — LLM not needed
+    expect(analyzeSentimentBatch).not.toHaveBeenCalled();
+  });
+
+  it("calls LLM only for new comment when one is cached and one is new", async () => {
+    const cachedBodyHtml = "<p>old comment</p>";
+    const newBodyHtml = "<p>brand new comment</p>";
+
+    const cachedComment = makeComment({
+      id_code: "inc2_cached",
+      body_html: cachedBodyHtml,
+    });
+    const newComment = makeComment({
+      id_code: "inc2_new",
+      body_html: newBodyHtml,
+    });
+    const article = makeArticle({ id: 801 });
+
+    setupMockWithCachedMetrics(
+      [article],
+      [cachedComment, newComment],
+      [
+        {
+          index: 0,
+          score: 0.3,
+          id_code: "inc2_cached",
+          body_hash: bodyHash(cachedBodyHtml),
+        },
+      ],
+    );
+
+    vi.mocked(analyzeSentimentBatch).mockResolvedValue({
+      comments: [{ index: 0, score: 0.7 }],
+      volatility: 0.2,
+    });
+
+    const result = await syncArticles(1);
+
+    expect(result.synced).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(analyzeSentimentBatch).toHaveBeenCalledTimes(1);
+    // Only the new (uncached) comment text should be sent to the LLM
+    expect(analyzeSentimentBatch).toHaveBeenCalledWith(expect.any(String), [
+      stripHtml(newBodyHtml),
+    ]);
+  });
+
+  it("re-scores an edited comment whose body_hash mismatches the cache", async () => {
+    const editedBodyHtml = "<p>updated content</p>";
+    const editedComment = makeComment({
+      id_code: "inc3_edited",
+      body_html: editedBodyHtml,
+    });
+    const article = makeArticle({ id: 802 });
+
+    // Cache has a stale hash (old text) for the same id_code
+    setupMockWithCachedMetrics(
+      [article],
+      [editedComment],
+      [
+        {
+          index: 0,
+          score: 0.2,
+          id_code: "inc3_edited",
+          body_hash: "0000stale",
+        },
+      ],
+    );
+
+    vi.mocked(analyzeSentimentBatch).mockResolvedValue({
+      comments: [{ index: 0, score: 0.6 }],
+      volatility: 0.1,
+    });
+
+    const result = await syncArticles(1);
+
+    expect(result.synced).toBe(1);
+    expect(result.failed).toBe(0);
+    // Hash mismatch → comment treated as edited → LLM re-scores it
+    expect(analyzeSentimentBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves cached scores when LLM fails for a new comment in a partial batch", async () => {
+    const cachedBodyHtml = "<p>old stable comment</p>";
+    const newBodyHtml = "<p>new comment to score</p>";
+
+    const cachedComment = makeComment({
+      id_code: "inc4_cached",
+      body_html: cachedBodyHtml,
+    });
+    const newComment = makeComment({
+      id_code: "inc4_new",
+      body_html: newBodyHtml,
+    });
+    const article = makeArticle({ id: 803 });
+
+    setupMockWithCachedMetrics(
+      [article],
+      [cachedComment, newComment],
+      [
+        {
+          index: 0,
+          score: 0.4,
+          id_code: "inc4_cached",
+          body_hash: bodyHash(cachedBodyHtml),
+        },
+      ],
+    );
+
+    // LLM fails for the new comment
+    vi.mocked(analyzeSentimentBatch).mockResolvedValue(null);
+
+    const result = await syncArticles(1);
+
+    // Sync succeeds: cached score for inc4_cached is preserved; inc4_new gets no score
+    expect(result.synced).toBe(1);
+    expect(result.failed).toBe(0);
   });
 });
