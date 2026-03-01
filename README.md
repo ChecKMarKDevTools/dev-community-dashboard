@@ -2,6 +2,48 @@
 
 ![DEV Community Dashboard Banner](public/dev-weekend-challenge-banner-community-dashboard.png)
 
+<div align="center">
+
+<!-- Build & Quality -->
+
+[![CI](https://img.shields.io/github/actions/workflow/status/ChecKMarKDevTools/dev-community-dashboard/ci.yml?branch=main&style=flat&logo=githubactions&logoColor=white&label=CI)](https://github.com/ChecKMarKDevTools/dev-community-dashboard/actions/workflows/ci.yml)
+[![Cron Sync](https://img.shields.io/github/actions/workflow/status/ChecKMarKDevTools/dev-community-dashboard/cron.yml?branch=main&style=flat&logo=githubactions&logoColor=white&label=Cron%20Sync)](https://github.com/ChecKMarKDevTools/dev-community-dashboard/actions/workflows/cron.yml)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=ChecKMarKDevTools_forem-community-dashboard&metric=alert_status)](https://sonarcloud.io/summary/overall?id=ChecKMarKDevTools_forem-community-dashboard)
+[![SonarCloud Coverage](https://sonarcloud.io/api/project_badges/measure?project=ChecKMarKDevTools_forem-community-dashboard&metric=coverage)](https://sonarcloud.io/summary/overall?id=ChecKMarKDevTools_forem-community-dashboard)
+[![Semgrep](https://img.shields.io/badge/Semgrep-SAST-4B11A8?style=flat&logo=semgrep&logoColor=white)](https://semgrep.dev)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/ChecKMarKDevTools/dev-community-dashboard/ci.yml?branch=main&style=flat&logo=github&logoColor=white&label=CodeQL)](https://github.com/ChecKMarKDevTools/dev-community-dashboard/actions/workflows/ci.yml)
+
+<!-- Tooling -->
+
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=flat&logo=nextdotjs&logoColor=white)](https://nextjs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?style=flat&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
+[![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3FCF8E?style=flat&logo=supabase&logoColor=white)](https://supabase.com)
+[![Vitest](https://img.shields.io/badge/Vitest-Testing-6E9F18?style=flat&logo=vitest&logoColor=white)](https://vitest.dev)
+[![pnpm](https://img.shields.io/badge/pnpm-Package_Manager-F69220?style=flat&logo=pnpm&logoColor=white)](https://pnpm.io)
+[![Docker](https://img.shields.io/badge/Docker-Container-2496ED?style=flat&logo=docker&logoColor=white)](https://www.docker.com)
+[![ESLint](https://img.shields.io/badge/ESLint-Linting-4B32C3?style=flat&logo=eslint&logoColor=white)](https://eslint.org)
+[![Conventional Commits](https://img.shields.io/badge/Conventional_Commits-1.0.0-FE5196?style=flat&logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org)
+[![Lefthook](https://img.shields.io/badge/Lefthook-Git_Hooks-FF1E1E?style=flat&logo=git&logoColor=white)](https://github.com/evilmartians/lefthook)
+[![Google Cloud Run](https://img.shields.io/badge/Cloud_Run-Deployment-4285F4?style=flat&logo=googlecloud&logoColor=white)](https://cloud.google.com/run)
+
+<!-- AI Tooling -->
+
+[![Claude](https://img.shields.io/badge/Claude-Anthropic-D97757?style=flat&logo=anthropic&logoColor=white)](https://claude.ai)
+[![GitHub Copilot](https://img.shields.io/badge/GitHub_Copilot-AI-000000?style=flat&logo=githubcopilot&logoColor=white)](https://github.com/features/copilot)
+[![ChatGPT](https://img.shields.io/badge/ChatGPT-OpenAI-74AA9C?style=flat&logo=openai&logoColor=white)](https://chat.openai.com)
+[![Google Gemini](https://img.shields.io/badge/Gemini-Google-8E75B2?style=flat&logo=googlegemini&logoColor=white)](https://gemini.google.com)
+[![Kiro](https://img.shields.io/badge/Kiro-AWS-FF9900?style=flat&logo=amazonwebservices&logoColor=white)](https://kiro.dev)
+[![n8n](https://img.shields.io/badge/n8n-Automation-EA4B71?style=flat&logo=n8n&logoColor=white)](https://n8n.io)
+[![Ollama](https://img.shields.io/badge/Ollama-Local_LLM-000000?style=flat&logo=ollama&logoColor=white)](https://ollama.com)
+
+<!-- Support -->
+
+[![Sponsor](https://img.shields.io/badge/Sponsor-GitHub_Sponsors-EA4AAA?style=flat&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/anchildress1)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy_Me_a_Coffee-Support-FFDD00?style=flat&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/anchildress1)
+
+</div>
+
 A signal-surfacing tool for [Forem](https://forem.com/) communities (dev.to and self-hosted instances). It ingests the latest posts via the public Forem API, classifies each one into attention categories (Awaiting Collaboration, Anomalous Signal, Trending Signal, Rapid Discussion, Steady Signal), and persists the results in Supabase so community helpers can see where conversations need a human eye.
 
 This is **not** a moderation tool or a scorecard. It is designed to help helpers know where to look.
@@ -272,6 +314,37 @@ If you are contributing, here is where things live:
 | Tests                                                   | Co-located `*.test.ts` / `*.test.tsx` files next to the source |
 | CI checks                                               | `.github/workflows/ci.yml` (single workflow for all checks)    |
 | Project conventions                                     | `AGENTS.md`                                                    |
+
+---
+
+## Database Migrations
+
+All migrations live in `supabase/migrations/` and are applied in order via `supabase db push`.
+
+| Migration           | File                                                               | Description                                                                                          |
+| ------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| Initial schema      | `0000_initial_schema.sql`                                          | Creates `articles`, `users`, and `commenters` tables with indexes and enables RLS                    |
+| RLS policies        | `0001_rls_policies.sql`                                            | Adds anon SELECT-only policies on `articles` and `commenters`; `users` has no anon policy (deny-all) |
+| Add dev URL         | `20260228030900_add_dev_url_and_action.sql`                        | Adds `dev_url TEXT` column to `articles` and backfills from `canonical_url`                          |
+| Add metrics JSONB   | `20260228235416_add_metrics_jsonb_column_to_articles.sql`          | Adds `metrics JSONB DEFAULT '{}'` column to `articles` for per-post analytics                        |
+| Allow null username | `20260301004053_allow_null_commenter_username.sql`                 | Drops `NOT NULL` constraint on `commenters.username` to handle deleted Forem accounts                |
+| Rename category     | `20260301040126_rename_possibly_low_quality_to_signal_at_risk.sql` | Renames `POSSIBLY_LOW_QUALITY` category to `SIGNAL_AT_RISK` across all rows                          |
+
+---
+
+## Connect & Support
+
+<div align="center">
+
+[![DEV.to](https://img.shields.io/badge/DEV.to-anchildress1-0A0A0A?style=flat&logo=devdotto&logoColor=white)](https://dev.to/anchildress1)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-anchildress1-0A66C2?style=flat&logo=linkedin&logoColor=white)](https://linkedin.com/in/anchildress1)
+[![Medium](https://img.shields.io/badge/Medium-@anchildress1-000000?style=flat&logo=medium&logoColor=white)](https://medium.com/@anchildress1)
+[![Reddit](https://img.shields.io/badge/Reddit-anchildress1-FF4500?style=flat&logo=reddit&logoColor=white)](https://reddit.com/user/anchildress1)
+
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub_Sponsors-EA4AAA?style=flat&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/anchildress1)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy_Me_a_Coffee-Support-FFDD00?style=flat&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/anchildress1)
+
+</div>
 
 ---
 
