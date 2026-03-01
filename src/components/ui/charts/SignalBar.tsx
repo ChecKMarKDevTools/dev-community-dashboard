@@ -49,16 +49,22 @@ export function SignalBar({
     );
   }
 
-  const values: Record<string, number> = { strong, moderate, faint };
+  // Pre-compute normalized percentages so aria-label and displayed text agree
+  // even when callers pass values that don't already sum to 100.
+  const pcts: Record<string, number> = {
+    strong: Math.round((strong / total) * 100),
+    moderate: Math.round((moderate / total) * 100),
+    faint: Math.round((faint / total) * 100),
+  };
 
   return (
     <div
       className={cn("space-y-2.5", className)}
       role="img"
-      aria-label={`Comment depth: ${Math.round(strong)}% substantive, ${Math.round(moderate)}% mixed, ${Math.round(faint)}% surface-level`}
+      aria-label={`Comment depth: ${pcts.strong}% substantive, ${pcts.moderate}% mixed, ${pcts.faint}% surface-level`}
     >
       {SEGMENTS.map(({ key, label, dotClass, barClass }) => {
-        const pct = Math.round((values[key] / total) * 100);
+        const pct = pcts[key];
         return (
           <div key={key} className="flex items-center gap-3">
             <span
