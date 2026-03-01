@@ -532,7 +532,9 @@ export function buildArticleMetrics(
 
 /** Bundled inputs for the deep-scoring function (S107: max 7 params) */
 interface DeepScoreInput {
-  readonly article: ForemArticle;
+  // published_at narrowed to string: callers must pass articles that have
+  // already been validated by isPublishedArticle (or backfilled from DB).
+  readonly article: ForemArticle & { published_at: string };
   readonly username: string;
   readonly word_count: number;
   readonly age_hours: number;
@@ -639,9 +641,7 @@ async function deepScoreAndPersist(
 
   const articleMetrics = buildArticleMetrics({
     metrics,
-    // deepScoreAndPersist is only called for articles that passed the
-    // isPublishedArticle predicate filter, so published_at is non-null.
-    publishedAt: article.published_at!,
+    publishedAt: article.published_at,
     commentCount: comment_count,
     ageHours: age_hours,
     riskScore: risk_score,
@@ -866,15 +866,26 @@ async function backfillEmptyMetrics(
   for (const row of emptyRows) {
     try {
       const article = await ForemClient.getArticle(row.id, false);
-      const username = article.user.username;
-      // Articles in the backfill set were already stored during a prior sync,
-      // so published_at is guaranteed non-null here.
-      const age_hours = getAgeHours(article.published_at!);
-      const word_count = article.reading_time_minutes * 200;
+      // Guard: articles stored during a prior sync should always have
+      // published_at, but the API may return null for deleted/unlisted posts.
+      if (!article.published_at) {
+        failed++;
+        errors.push(
+          `Backfill article ${row.id}: published_at is null, skipping`,
+        );
+        continue;
+      }
+      // Cast to the narrowed type after the runtime null guard above.
+      const publishedArticle = article as ForemArticle & {
+        published_at: string;
+      };
+      const username = publishedArticle.user.username;
+      const age_hours = getAgeHours(publishedArticle.published_at);
+      const word_count = publishedArticle.reading_time_minutes * 200;
       const author_post_frequency = postsByAuthor24h.get(username) || 1;
       const preliminary_score =
-        article.public_reactions_count +
-        article.comments_count * 2 +
+        publishedArticle.public_reactions_count +
+        publishedArticle.comments_count * 2 +
         word_count / 100 -
         age_hours -
         author_post_frequency;
@@ -885,7 +896,7 @@ async function backfillEmptyMetrics(
       }
 
       await deepScoreAndPersist({
-        article,
+        article: publishedArticle,
         username,
         word_count,
         age_hours,

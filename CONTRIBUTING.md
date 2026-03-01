@@ -26,7 +26,7 @@ If you're contributing as part of a monetized product, stop here and [reach out 
 
 ## Setup
 
-**Requirements:** Node.js 20+, pnpm, Docker (for Hadolint), a Supabase project, a DEV.to API key.
+**Requirements:** Node.js 22+, pnpm, Docker (for Hadolint), a Supabase project, a DEV.to API key.
 
 ```bash
 pnpm install
