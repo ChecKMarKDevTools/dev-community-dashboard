@@ -71,8 +71,10 @@ function countWords(textHtml?: string): number {
     .filter((w) => w.length > 0).length;
 }
 
-// Basic Sentiments (for Hackathon requirement) — Sets for O(1) lookups (S7776)
-const POSITIVE_WORDS = new Set([
+// Sentiment keyword lists — exported so the UI can surface them as helper text
+// (Metric Transparency: every signal must be visible in the UI).
+// Sets for O(1) lookups (S7776).
+export const POSITIVE_WORDS = new Set([
   "awesome",
   "great",
   "excellent",
@@ -82,7 +84,7 @@ const POSITIVE_WORDS = new Set([
   "thanks",
   "helpful",
 ]);
-const NEGATIVE_WORDS = new Set([
+export const NEGATIVE_WORDS = new Set([
   "terrible",
   "bad",
   "awful",
