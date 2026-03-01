@@ -44,6 +44,22 @@ import {
   SCORE_BREAKDOWN_SIGNALS,
 } from "@/lib/dashboard-helpers";
 import type { Post, PostDetails, RecentPost } from "@/types/dashboard";
+import {
+  ChartContainer,
+  LineChart,
+  HorizontalBarChart,
+  DivergingBar,
+  MarkerTimeline,
+} from "@/components/ui/charts";
+import {
+  hasAnalyticsData,
+  getVelocityChartData,
+  getVelocityBaseline,
+  getParticipationData,
+  getSentimentData,
+  getConstructivenessData,
+  getRiskMarkers,
+} from "@/lib/metrics-helpers";
 
 type DetailPanelProps = Readonly<{
   selectedPostId: number | null;
@@ -216,6 +232,78 @@ function DetailPanel({
             </p>
           </CardContent>
         </SectionCard>
+
+        {/* Post Analytics — visualizations from computed metrics */}
+        {hasAnalyticsData(postDetails.metrics) && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, delay: 0.1 }}
+            className="mt-6 space-y-6"
+          >
+            <h3 className="font-heading text-text-primary text-xl font-bold">
+              Post Analytics
+            </h3>
+
+            <div className="grid gap-6 md:grid-cols-2">
+              {/* Reply Velocity */}
+              <ChartContainer
+                title="Reply Velocity"
+                description="Comment arrival rate over time (per hour)"
+              >
+                <LineChart
+                  data={getVelocityChartData(postDetails.metrics)}
+                  baseline={getVelocityBaseline(postDetails.metrics)}
+                  xLabel="Hours since post"
+                  yLabel="Comments"
+                />
+              </ChartContainer>
+
+              {/* Participation Distribution */}
+              <ChartContainer
+                title="Participation Distribution"
+                description="Top commenters by share of total comments"
+              >
+                <HorizontalBarChart
+                  data={getParticipationData(postDetails.metrics)}
+                />
+              </ChartContainer>
+            </div>
+
+            {/* Sentiment Spread */}
+            <ChartContainer
+              title="Sentiment Spread"
+              description="Positive, neutral, and negative comment proportions"
+            >
+              <DivergingBar {...getSentimentData(postDetails.metrics)} />
+            </ChartContainer>
+
+            {/* Constructiveness Trend */}
+            {postDetails.metrics.constructiveness_buckets.length > 0 && (
+              <ChartContainer
+                title="Constructiveness Trend"
+                description="Average reply depth over time (deeper = more threaded discussion)"
+              >
+                <LineChart
+                  data={getConstructivenessData(postDetails.metrics)}
+                  xLabel="Hours since post"
+                  yLabel="Reply depth"
+                  seriesColor="tertiary"
+                />
+              </ChartContainer>
+            )}
+
+            {/* Risk Signal Timeline — only when risk > 0 */}
+            {postDetails.metrics.risk_score > 0 && (
+              <ChartContainer
+                title="Risk Signal Timeline"
+                description="Which risk factors are contributing to the risk score"
+              >
+                <MarkerTimeline markers={getRiskMarkers(postDetails.metrics)} />
+              </ChartContainer>
+            )}
+          </motion.div>
+        )}
       </div>
 
       {/* Author History */}

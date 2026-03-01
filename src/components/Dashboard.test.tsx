@@ -855,4 +855,175 @@ describe("Dashboard Component", () => {
       screen.getByRole("button", { name: "Light mode" }),
     ).toBeInTheDocument();
   });
+
+  // ── Post Analytics Visualizations ─────────────────────────────────────
+
+  it("renders Post Analytics section when metrics data is present", async () => {
+    const detailWithMetrics = {
+      ...mockPosts[0],
+      dev_url: "https://dev.to/testauthor/post-1",
+      recent_posts: [],
+      metrics: {
+        velocity_buckets: [
+          { hour: 0, count: 3 },
+          { hour: 1, count: 5 },
+        ],
+        comments_per_hour: 2.5,
+        commenter_shares: [
+          { username: "alice", share: 0.5 },
+          { username: "bob", share: 0.3 },
+        ],
+        positive_pct: 40,
+        neutral_pct: 40,
+        negative_pct: 20,
+        constructiveness_buckets: [
+          { hour: 0, depth_index: 0.5 },
+          { hour: 1, depth_index: 1.5 },
+        ],
+        avg_comment_length: 25,
+        reply_ratio: 0.6,
+        alternating_pairs: 1,
+        risk_components: {
+          frequency_penalty: 0,
+          short_content: false,
+          no_engagement: false,
+          promo_keywords: 0,
+          repeated_links: 0,
+          engagement_credit: 1,
+        },
+        risk_score: 0,
+        sentiment_flips: 1,
+        is_first_post: false,
+        help_keywords: 0,
+      },
+    };
+
+    globalThis.fetch = vi.fn().mockImplementation((url) => {
+      if (url === "/api/posts")
+        return Promise.resolve({ ok: true, json: async () => mockPosts });
+      if (url === "/api/posts/1")
+        return Promise.resolve({
+          ok: true,
+          json: async () => detailWithMetrics,
+        });
+      return Promise.reject(new Error("Not found"));
+    });
+
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByText("Needs review post")).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByText("Needs review post").closest("div.border")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Post Analytics")).toBeInTheDocument();
+    });
+
+    // Chart sections should be visible
+    expect(screen.getByText("Reply Velocity")).toBeInTheDocument();
+    expect(screen.getByText("Participation Distribution")).toBeInTheDocument();
+    expect(screen.getByText("Sentiment Spread")).toBeInTheDocument();
+    expect(screen.getByText("Constructiveness Trend")).toBeInTheDocument();
+    // Risk score is 0 so Risk Signal Timeline should NOT be shown
+    expect(screen.queryByText("Risk Signal Timeline")).not.toBeInTheDocument();
+  });
+
+  it("hides Post Analytics section when metrics is null", async () => {
+    const detailNoMetrics = {
+      ...mockPosts[0],
+      dev_url: "https://dev.to/testauthor/post-1",
+      recent_posts: [],
+      metrics: null,
+    };
+
+    globalThis.fetch = vi.fn().mockImplementation((url) => {
+      if (url === "/api/posts")
+        return Promise.resolve({ ok: true, json: async () => mockPosts });
+      if (url === "/api/posts/1")
+        return Promise.resolve({
+          ok: true,
+          json: async () => detailNoMetrics,
+        });
+      return Promise.reject(new Error("Not found"));
+    });
+
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByText("Needs review post")).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByText("Needs review post").closest("div.border")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Discussion State")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("Post Analytics")).not.toBeInTheDocument();
+  });
+
+  it("shows Risk Signal Timeline when risk_score > 0", async () => {
+    const detailWithRisk = {
+      ...mockPosts[0],
+      dev_url: "https://dev.to/testauthor/post-1",
+      recent_posts: [],
+      metrics: {
+        velocity_buckets: [{ hour: 0, count: 1 }],
+        comments_per_hour: 0.5,
+        commenter_shares: [{ username: "alice", share: 1 }],
+        positive_pct: 0,
+        neutral_pct: 100,
+        negative_pct: 0,
+        constructiveness_buckets: [],
+        avg_comment_length: 10,
+        reply_ratio: 0,
+        alternating_pairs: 0,
+        risk_components: {
+          frequency_penalty: 2,
+          short_content: true,
+          no_engagement: false,
+          promo_keywords: 1,
+          repeated_links: 0,
+          engagement_credit: 0,
+        },
+        risk_score: 5,
+        sentiment_flips: 0,
+        is_first_post: false,
+        help_keywords: 0,
+      },
+    };
+
+    globalThis.fetch = vi.fn().mockImplementation((url) => {
+      if (url === "/api/posts")
+        return Promise.resolve({ ok: true, json: async () => mockPosts });
+      if (url === "/api/posts/1")
+        return Promise.resolve({
+          ok: true,
+          json: async () => detailWithRisk,
+        });
+      return Promise.reject(new Error("Not found"));
+    });
+
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByText("Needs review post")).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByText("Needs review post").closest("div.border")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Risk Signal Timeline")).toBeInTheDocument();
+    });
+
+    // Risk markers should show
+    expect(screen.getByText("Freq")).toBeInTheDocument();
+    expect(screen.getByText("Short")).toBeInTheDocument();
+    expect(screen.getByText("Promo")).toBeInTheDocument();
+  });
 });
