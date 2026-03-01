@@ -240,12 +240,13 @@ export function computeAgeHours(published_at: string): number {
   return Math.round(ageMs / (1000 * 60 * 60));
 }
 
-/** Priority order for attention levels in the queue list */
+/** Priority order for attention levels in the queue list.
+ *  Awaiting Collaboration > Anomalous Signal > Trending Signal > Rapid Discussion > Steady Signal */
 export const ATTENTION_PRIORITY: Record<string, number> = {
   NEEDS_RESPONSE: 0,
-  BOOST_VISIBILITY: 1,
-  NEEDS_REVIEW: 2,
-  POSSIBLY_LOW_QUALITY: 3,
+  POSSIBLY_LOW_QUALITY: 1,
+  BOOST_VISIBILITY: 2,
+  NEEDS_REVIEW: 3,
   NORMAL: 4,
 };
 

@@ -273,9 +273,9 @@ describe("Dashboard Component", () => {
       .map((h) => h.textContent);
     expect(titles).toEqual([
       "Needs response",
+      "Low quality",
       "Boost post",
       "Needs review",
-      "Low quality",
       "Normal post",
     ]);
   });

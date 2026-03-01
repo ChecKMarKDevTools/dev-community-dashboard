@@ -442,9 +442,12 @@ describe("sortByAttentionPriority", () => {
       makePost(1, "NORMAL", 100),
       makePost(2, "NEEDS_RESPONSE", 10),
       makePost(3, "BOOST_VISIBILITY", 30),
+      makePost(4, "POSSIBLY_LOW_QUALITY", 20),
+      makePost(5, "NEEDS_REVIEW", 40),
     ];
     const sorted = sortByAttentionPriority(posts);
-    expect(sorted.map((p) => p.id)).toEqual([2, 3, 1]);
+    // Awaiting Collaboration > Anomalous Signal > Trending Signal > Rapid Discussion > Steady
+    expect(sorted.map((p) => p.id)).toEqual([2, 4, 3, 5, 1]);
   });
 
   it("sorts by score descending within same priority", () => {
@@ -512,10 +515,16 @@ describe("constants", () => {
 
   it("ATTENTION_PRIORITY has ascending values for decreasing urgency", () => {
     expect(ATTENTION_PRIORITY.NEEDS_RESPONSE).toBeLessThan(
-      ATTENTION_PRIORITY.NORMAL,
+      ATTENTION_PRIORITY.POSSIBLY_LOW_QUALITY,
+    );
+    expect(ATTENTION_PRIORITY.POSSIBLY_LOW_QUALITY).toBeLessThan(
+      ATTENTION_PRIORITY.BOOST_VISIBILITY,
     );
     expect(ATTENTION_PRIORITY.BOOST_VISIBILITY).toBeLessThan(
       ATTENTION_PRIORITY.NEEDS_REVIEW,
+    );
+    expect(ATTENTION_PRIORITY.NEEDS_REVIEW).toBeLessThan(
+      ATTENTION_PRIORITY.NORMAL,
     );
   });
 });
