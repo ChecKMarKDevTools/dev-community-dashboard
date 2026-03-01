@@ -20,7 +20,7 @@ export function QueueCard({
       className={cn(
         "card-lift cursor-pointer",
         selected
-          ? "card-active border-l-accent-primary border-l-3"
+          ? "card-active border-l-accent-primary border-l-[3px]"
           : "bg-paper-clue hover:border-surface-raised",
         className,
       )}
