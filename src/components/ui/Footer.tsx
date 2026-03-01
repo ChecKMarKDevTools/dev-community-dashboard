@@ -22,7 +22,7 @@ export function Footer() {
             <span className="text-text-secondary">
               Interaction scoring by{" "}
               <span className="text-text-primary font-semibold">
-                GPT-5-nano
+                OpenAI / heuristic fallback
               </span>
             </span>
           </div>

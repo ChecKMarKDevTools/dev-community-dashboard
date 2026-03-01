@@ -2,9 +2,9 @@ import { render, screen } from "@testing-library/react";
 import { Footer } from "@/components/ui/Footer";
 
 describe("Footer", () => {
-  it("renders the GPT-5-nano attribution", () => {
+  it("renders the interaction scoring attribution", () => {
     render(<Footer />);
-    expect(screen.getByText("GPT-5-nano")).toBeInTheDocument();
+    expect(screen.getByText("OpenAI / heuristic fallback")).toBeInTheDocument();
     expect(screen.getByText(/Interaction scoring by/)).toBeInTheDocument();
   });
 
