@@ -2,12 +2,7 @@
 
 import * as React from "react";
 import { motion } from "framer-motion";
-import {
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-} from "@/components/ui/Card";
+import { CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Spinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -42,7 +37,6 @@ import {
   formatSignalDisplay,
   computeAgeHours,
   sortByAttentionPriority,
-  getSignalSummary,
   SIGNAL_TOOLTIPS,
   DISCUSSION_STATE_SIGNALS,
 } from "@/lib/dashboard-helpers";
@@ -62,7 +56,6 @@ import {
   getInteractionSignal,
   getInteractionMethod,
   getInteractionVolatility,
-  getTopicTags,
   getConstructivenessData,
   getRiskMarkers,
 } from "@/lib/metrics-helpers";
@@ -190,13 +183,12 @@ function DetailPanel({
           {/* Conversation Signals — LEFT/first */}
           <SectionCard>
             <CardHeader className="pb-3">
-              <CardTitle className="font-heading text-text-secondary text-lg">
+              <CardTitle
+                className="font-heading text-text-secondary text-lg"
+                title="Observable data points extracted from the conversation thread. Hover over any signal for an explanation."
+              >
                 Conversation Signals
               </CardTitle>
-              <CardDescription>
-                Observable data points extracted from the conversation thread.
-                Hover over any signal for an explanation.
-              </CardDescription>
             </CardHeader>
             <CardContent>
               {postDetails.explanations &&
@@ -228,13 +220,12 @@ function DetailPanel({
           {/* Discussion State — RIGHT/second */}
           <SectionCard variant="muted">
             <CardHeader className="pb-3">
-              <CardTitle className="font-heading text-text-secondary text-lg">
+              <CardTitle
+                className="font-heading text-text-secondary text-lg"
+                title="Composite indicators derived from conversation signals. Each bar shows intensity relative to community baselines."
+              >
                 Discussion State
               </CardTitle>
-              <CardDescription>
-                Composite indicators derived from conversation signals. Each bar
-                shows intensity relative to community baselines.
-              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {Object.entries(
@@ -322,53 +313,27 @@ function DetailPanel({
                 hasSpreadData && <SignalBar {...spread} />
               );
             })()}
-            <p className="text-text-secondary mt-3 text-xs leading-relaxed">
-              {getSignalSummary(
-                getInteractionSignal(postDetails.metrics),
-                getInteractionMethod(postDetails.metrics),
-              )}
-            </p>
-            <div className="mt-2 space-y-1.5">
-              {getInteractionMethod(postDetails.metrics) !== "unknown" && (
-                <p className="text-text-muted text-xs">
+            {getInteractionMethod(postDetails.metrics) !== "unknown" && (
+              <div className="text-text-muted mt-3 flex items-center gap-4 text-xs">
+                <span title="Composite interaction quality score (0–1). Higher means more substantive discussion.">
                   Signal:{" "}
                   <span className="text-text-secondary font-medium">
                     {getInteractionSignal(postDetails.metrics).toFixed(2)}
                   </span>
-                  {" | "}
-                  Method:{" "}
-                  <span className="text-text-secondary font-medium">
-                    {getInteractionMethod(postDetails.metrics) === "llm"
-                      ? "LLM"
-                      : "Heuristic"}
-                  </span>
-                  {getInteractionMethod(postDetails.metrics) === "llm" && (
-                    <>
-                      {" | "}
-                      Volatility:{" "}
-                      <span className="text-text-secondary font-medium">
-                        {Math.round(
-                          getInteractionVolatility(postDetails.metrics) * 100,
-                        )}
-                        %
-                      </span>
-                    </>
-                  )}
-                </p>
-              )}
-              {getTopicTags(postDetails.metrics).length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {getTopicTags(postDetails.metrics).map((tag) => (
-                    <span
-                      key={tag}
-                      className="bg-surface-raised text-text-secondary rounded-md px-2 py-0.5 text-[10px] font-medium tracking-wide"
-                    >
-                      {tag}
+                </span>
+                {getInteractionMethod(postDetails.metrics) === "llm" && (
+                  <span title="How much scores vary across comments. High volatility means mixed quality; low means consistent depth.">
+                    Volatility:{" "}
+                    <span className="text-text-secondary font-medium">
+                      {Math.round(
+                        getInteractionVolatility(postDetails.metrics) * 100,
+                      )}
+                      %
                     </span>
-                  ))}
-                </div>
-              )}
-            </div>
+                  </span>
+                )}
+              </div>
+            )}
           </ChartContainer>
 
           {/* Constructiveness Trend */}

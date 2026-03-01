@@ -1088,7 +1088,7 @@ describe("Dashboard Component", () => {
     expect(screen.queryByText("Contributing signals:")).not.toBeInTheDocument();
   });
 
-  it("shows AI-powered tooltip, signal/method/volatility and topic tags when interaction_method is 'llm'", async () => {
+  it("shows signal score and volatility with hover helpers when interaction_method is 'llm'", async () => {
     const detailWithLLM = {
       ...mockPosts[0],
       dev_url: "https://dev.to/testauthor/post-1",
@@ -1162,33 +1162,25 @@ describe("Dashboard Component", () => {
       expect(screen.getByText("Interaction Signal")).toBeInTheDocument();
     });
 
-    // Signal tooltip text should be present — describes what the signal measures
-    const tooltips = screen.getAllByRole("tooltip");
-    const tooltipTexts = tooltips.map((el) => el.textContent);
-    expect(tooltipTexts.some((t) => t?.includes("substance of comments"))).toBe(
-      true,
-    );
+    // Signal score with hover helper
+    const signalSpan = screen.getByTitle(/Composite interaction quality/);
+    expect(signalSpan).toBeInTheDocument();
+    expect(signalSpan.textContent).toContain("0.72");
 
-    // Signal, Method, and Volatility sub-line should be visible
-    // The text is split across nested <span> elements inside a single <p>,
-    // so we match on the combined textContent of the container.
-    const signalLine = screen.getByText(
-      (_content, element) =>
-        element?.tagName === "P" &&
-        Boolean(element.textContent?.includes("Signal:")) &&
-        Boolean(element.textContent?.includes("Method:")) &&
-        Boolean(element.textContent?.includes("LLM")) &&
-        Boolean(element.textContent?.includes("Volatility:")) &&
-        Boolean(element.textContent?.includes("60%")),
-    );
-    expect(signalLine).toBeInTheDocument();
+    // Volatility with hover helper (LLM only)
+    const volSpan = screen.getByTitle(/How much scores vary/);
+    expect(volSpan).toBeInTheDocument();
+    expect(volSpan.textContent).toContain("60%");
 
-    // Topic tags should render as spans
-    expect(screen.getByText("typescript")).toBeInTheDocument();
-    expect(screen.getByText("testing")).toBeInTheDocument();
+    // Topic tags should NOT be rendered (internal LLM context only)
+    expect(screen.queryByText("typescript")).not.toBeInTheDocument();
+    expect(screen.queryByText("testing")).not.toBeInTheDocument();
+
+    // Method label should NOT be rendered
+    expect(screen.queryByText("LLM")).not.toBeInTheDocument();
   });
 
-  it("shows heuristic tooltip when interaction_method is 'heuristic'", async () => {
+  it("shows signal score without volatility when interaction_method is 'heuristic'", async () => {
     const detailWithHeuristic = {
       ...mockPosts[0],
       dev_url: "https://dev.to/testauthor/post-1",
@@ -1244,24 +1236,12 @@ describe("Dashboard Component", () => {
       expect(screen.getByText("Interaction Signal")).toBeInTheDocument();
     });
 
-    // Signal tooltip should be present (describes what signal measures)
-    const tooltips = screen.getAllByRole("tooltip");
-    const tooltipTexts = tooltips.map((el) => el.textContent);
-    expect(tooltipTexts.some((t) => t?.includes("substance of comments"))).toBe(
-      true,
-    );
+    // Signal score with hover helper
+    const signalSpan = screen.getByTitle(/Composite interaction quality/);
+    expect(signalSpan).toBeInTheDocument();
+    expect(signalSpan.textContent).toContain("0.45");
 
-    // Signal and Method should be shown, but Volatility should NOT for heuristic method.
-    // The text is split across nested <span> elements inside a single <p>,
-    // so we match on the combined textContent of the container.
-    const signalLine = screen.getByText(
-      (_content, element) =>
-        element?.tagName === "P" &&
-        Boolean(element.textContent?.includes("Signal:")) &&
-        Boolean(element.textContent?.includes("Method:")) &&
-        Boolean(element.textContent?.includes("Heuristic")),
-    );
-    expect(signalLine).toBeInTheDocument();
-    expect(signalLine.textContent).not.toContain("Volatility:");
+    // Volatility should NOT be shown for heuristic method
+    expect(screen.queryByTitle(/How much scores vary/)).not.toBeInTheDocument();
   });
 });
