@@ -1,5 +1,3 @@
-# DEV Community Dashboard
-
 ![DEV Community Dashboard Banner](https://raw.githubusercontent.com/ChecKMarKDevTools/forem-community-dashboard/main/public/dev-weekend-challenge-banner-community-dashboard.png)
 
 [![GitHub Stars](https://img.shields.io/github/stars/ChecKMarKDevTools/dev-community-dashboard?style=flat&logo=github&logoColor=white)](https://github.com/ChecKMarKDevTools/dev-community-dashboard/stargazers) [![License](https://img.shields.io/badge/License-PolyForm_Shield_1.0.0-blue?style=flat)](./LICENSE) [![DEV.to](https://img.shields.io/badge/DEV.to-anchildress1-0A0A0A?style=flat&logo=devdotto&logoColor=white)](https://dev.to/anchildress1)
@@ -15,6 +13,8 @@
 [![Claude](https://img.shields.io/badge/Claude-Anthropic-D97757?style=flat&logo=anthropic&logoColor=white)](https://claude.ai) [![ChatGPT](https://img.shields.io/badge/ChatGPT-OpenAI-74AA9C?style=flat&logo=openai&logoColor=white)](https://chat.openai.com) [![Google Gemini](https://img.shields.io/badge/Gemini-Google-8E75B2?style=flat&logo=googlegemini&logoColor=white)](https://gemini.google.com) [![Leonardo.ai](https://img.shields.io/badge/Leonardo.ai-Seedream_4.5-7C3AED?style=flat&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjEwIi8+PC9zdmc+&logoColor=white)](https://leonardo.ai)
 
 [![Sponsor](https://img.shields.io/badge/Sponsor-GitHub_Sponsors-EA4AAA?style=flat&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/anchildress1) [![Buy Me a Coffee](https://img.shields.io/badge/Buy_Me_a_Coffee-Support-FFDD00?style=flat&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/anchildress1)
+
+# DEV Community Dashboard
 
 A signal-surfacing tool for [Forem](https://forem.com/) communities (dev.to and self-hosted instances). It ingests the latest posts via the public Forem API, classifies each one into attention categories (Awaiting Collaboration, Anomalous Signal, Trending Signal, Rapid Discussion, Steady Signal), and persists the results in Supabase so community helpers can see where conversations need a human eye.
 
