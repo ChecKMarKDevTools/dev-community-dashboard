@@ -1,4 +1,4 @@
-# Forem Community Observability Dashboard
+# DEV Community Dashboard
 
 ![DEV Community Dashboard Banner](public/dev-weekend-challenge-banner-community-dashboard.png)
 
