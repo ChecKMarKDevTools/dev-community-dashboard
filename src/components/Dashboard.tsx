@@ -411,14 +411,6 @@ export function Dashboard() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* Skip to main content for keyboard users */}
-      <a
-        href="#main-content"
-        className="bg-accent-primary text-paper-clue absolute top-2 left-2 z-50 -translate-y-full rounded px-4 py-2 text-sm font-medium transition-transform focus:translate-y-0"
-      >
-        Skip to main content
-      </a>
-
       {/* Left panel: Post List */}
       <aside
         aria-label="Post queue"
@@ -490,10 +482,7 @@ export function Dashboard() {
 
       {/* Right panel: Post Details — only rendered when a post is selected */}
       {selectedPostId !== null && (
-        <main
-          id="main-content"
-          className="bg-surface-primary/50 relative flex-1 overflow-y-auto p-6 md:p-8"
-        >
+        <main className="bg-surface-primary/50 relative flex-1 overflow-y-auto p-6 md:p-8">
           <DetailPanel
             selectedPostId={selectedPostId}
             detailsLoading={detailsLoading}
