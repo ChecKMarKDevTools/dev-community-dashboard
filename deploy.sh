@@ -83,6 +83,11 @@ else
   echo "Warning: .env not found. Ensure all required variables are exported." >&2
 fi
 
+# Capture the .env origins before the variable is overwritten below.
+# These are included verbatim in every ALLOWED_ORIGINS computation so that
+# any known origin listed in .env is always included in the deployed config.
+ENV_CORS_ORIGINS="${ALLOWED_ORIGINS:-}"
+
 # ── Env validation ────────────────────────────────────────────────────────────
 require_env() {
   local name=$1
@@ -173,15 +178,30 @@ echo "Image: $IMAGE_URI"
 gcloud builds submit --tag "$IMAGE_URI" . --project "$PROJECT_ID"
 
 # ── Resolve CORS origins ──────────────────────────────────────────────────────
-# Build comma-separated ALLOWED_ORIGINS, filtering empty strings so a blank
-# STATIC_CORS_ORIGIN (CUSTOM_DOMAIN="") never produces a trailing comma.
+# Merge and deduplicate any number of origin lists (each arg may be empty, a
+# single origin, or a comma-separated list).  Preserves insertion order and
+# strips whitespace so clean values reach the ALLOWED_ORIGINS env var.
 join_origins() {
-  local origins=()
-  for o in "$@"; do
-    [[ -n "$o" ]] && origins+=("$o")
+  local out="" o save_ifs
+  for item in "$@"; do
+    save_ifs="$IFS"
+    IFS=','
+    for o in $item; do
+      IFS="$save_ifs"
+      # Strip leading/trailing whitespace
+      o="${o#"${o%%[! ]*}"}"
+      o="${o%"${o##*[! ]}"}"
+      [[ -z "$o" ]] && continue
+      # Skip if already in output (sentinel-comma membership test)
+      case ",$out," in
+        *",$o,"*) ;;
+        *) out="${out:+$out,}$o" ;;
+      esac
+      IFS=','
+    done
+    IFS="$save_ifs"
   done
-  local IFS=","
-  echo "${origins[*]}"
+  echo "$out"
 }
 
 # If the service already exists, include its URL in ALLOWED_ORIGINS so the
@@ -193,11 +213,11 @@ EXISTING_URL=$(
 )
 
 if [[ -n "$EXISTING_URL" ]]; then
-  ALLOWED_ORIGINS=$(join_origins "$EXISTING_URL" "$STATIC_CORS_ORIGIN")
+  ALLOWED_ORIGINS=$(join_origins "$ENV_CORS_ORIGINS" "$EXISTING_URL" "$STATIC_CORS_ORIGIN")
 else
-  # First deploy: include only the static subdomain; the script will update
-  # ALLOWED_ORIGINS with the Cloud Run URL immediately after deploy.
-  ALLOWED_ORIGINS=$(join_origins "$STATIC_CORS_ORIGIN")
+  # First deploy: include .env origins and any static subdomain; the script
+  # will update ALLOWED_ORIGINS with the Cloud Run URL immediately after deploy.
+  ALLOWED_ORIGINS=$(join_origins "$ENV_CORS_ORIGINS" "$STATIC_CORS_ORIGIN")
 fi
 
 # ── Service account ───────────────────────────────────────────────────────────
@@ -251,7 +271,7 @@ DEPLOYED_URL=$(
 )
 
 if [[ -z "$EXISTING_URL" || "$DEPLOYED_URL" != "$EXISTING_URL" ]]; then
-  ALLOWED_ORIGINS=$(join_origins "$DEPLOYED_URL" "$STATIC_CORS_ORIGIN")
+  ALLOWED_ORIGINS=$(join_origins "$ENV_CORS_ORIGINS" "$DEPLOYED_URL" "$STATIC_CORS_ORIGIN")
   echo ""
   echo "Updating ALLOWED_ORIGINS with Cloud Run URL: $DEPLOYED_URL"
   gcloud run services update "$SERVICE_NAME" \
