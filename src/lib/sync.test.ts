@@ -1515,6 +1515,248 @@ describe("syncArticles — purge step", () => {
     // With maxToProcess set, purge is skipped — no purge message in errors
     expect(result.errors).not.toContainEqual(expect.stringContaining("Purged"));
   });
+
+  it("logs purge error and returns 0 purged when Supabase delete fails", async () => {
+    vi.mocked(ForemClient.getLatestArticles).mockResolvedValue([]);
+    vi.mocked(ForemClient.getArticle).mockResolvedValue(
+      makeArticle({ id: 920 }) as never,
+    );
+    vi.mocked(ForemClient.getUserByUsername).mockResolvedValue(mockUser);
+    vi.mocked(ForemClient.getComments).mockResolvedValue([]);
+
+    // Purge returns an error — covers the error branch in purgeStaleArticles
+    const selectChain = {
+      eq: vi.fn().mockReturnThis(),
+      gte: vi.fn().mockResolvedValue({ data: [], error: null }),
+    };
+    const deleteChain = {
+      lt: vi.fn().mockReturnValue({
+        select: vi
+          .fn()
+          .mockResolvedValue({ data: null, error: { message: "DB timeout" } }),
+      }),
+    };
+    vi.mocked(supabase.from).mockReturnValue({
+      upsert: vi.fn().mockResolvedValue({ error: null }),
+      select: vi.fn().mockReturnValue(selectChain),
+      delete: vi.fn().mockReturnValue(deleteChain),
+    } as never);
+
+    const result = await syncArticles();
+
+    // Purge failed silently (returns 0), so no "Purged N" message in errors
+    expect(result.errors).not.toContainEqual(expect.stringContaining("Purged"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// backfillEmptyMetrics tests
+// ---------------------------------------------------------------------------
+
+describe("syncArticles — backfill step", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("backfills articles with empty metrics from Supabase (production path)", async () => {
+    const backfillArticle = makeArticle({ id: 950 });
+
+    // No articles from the paginated API → main sync loop processes 0
+    vi.mocked(ForemClient.getLatestArticles).mockResolvedValue([]);
+    // getArticle is called during backfill with the row id
+    vi.mocked(ForemClient.getArticle).mockResolvedValue(
+      backfillArticle as never,
+    );
+    vi.mocked(ForemClient.getUserByUsername).mockResolvedValue(mockUser);
+    vi.mocked(ForemClient.getComments).mockResolvedValue([]);
+
+    // Sequence of supabase.from calls in the production path:
+    //   1) purge:           delete → lt → select → {data:[], error:null}
+    //   2) backfill query:  select → eq → gte → {data:[{id:950}], error:null}
+    //   3+) deepScoreAndPersist upserts (commenters + articles)
+    const purgeChain = {
+      lt: vi.fn().mockReturnValue({
+        select: vi.fn().mockResolvedValue({ data: [], error: null }),
+      }),
+    };
+    const backfillQueryChain = {
+      eq: vi.fn().mockReturnThis(),
+      gte: vi.fn().mockResolvedValue({ data: [{ id: 950 }], error: null }),
+    };
+    const upsertOnlyMock = {
+      upsert: vi.fn().mockResolvedValue({ error: null }),
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnThis(),
+        gte: vi.fn().mockResolvedValue({ data: [], error: null }),
+      }),
+      delete: vi.fn().mockReturnValue(purgeChain),
+    };
+
+    let callCount = 0;
+    vi.mocked(supabase.from).mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        // First call: purge
+        return { delete: vi.fn().mockReturnValue(purgeChain) } as never;
+      }
+      if (callCount === 2) {
+        // Second call: backfill query
+        return { select: vi.fn().mockReturnValue(backfillQueryChain) } as never;
+      }
+      // Remaining calls: upserts from deepScoreAndPersist
+      return upsertOnlyMock as never;
+    });
+
+    const result = await syncArticles();
+
+    // Backfill processed 1 article
+    expect(result.synced).toBe(1);
+    expect(result.failed).toBe(0);
+  });
+
+  it("records failure when backfill article has null published_at", async () => {
+    const nullPublishedArticle = makeArticle({ id: 951, published_at: null });
+
+    vi.mocked(ForemClient.getLatestArticles).mockResolvedValue([]);
+    vi.mocked(ForemClient.getArticle).mockResolvedValue(
+      nullPublishedArticle as never,
+    );
+    vi.mocked(ForemClient.getUserByUsername).mockResolvedValue(mockUser);
+    vi.mocked(ForemClient.getComments).mockResolvedValue([]);
+
+    const purgeChain = {
+      lt: vi.fn().mockReturnValue({
+        select: vi.fn().mockResolvedValue({ data: [], error: null }),
+      }),
+    };
+    const backfillQueryChain = {
+      eq: vi.fn().mockReturnThis(),
+      gte: vi.fn().mockResolvedValue({ data: [{ id: 951 }], error: null }),
+    };
+
+    let callCount = 0;
+    vi.mocked(supabase.from).mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return { delete: vi.fn().mockReturnValue(purgeChain) } as never;
+      }
+      if (callCount === 2) {
+        return { select: vi.fn().mockReturnValue(backfillQueryChain) } as never;
+      }
+      return {
+        upsert: vi.fn().mockResolvedValue({ error: null }),
+      } as never;
+    });
+
+    const result = await syncArticles();
+
+    expect(result.failed).toBe(1);
+    expect(result.errors).toContainEqual(
+      expect.stringContaining("Backfill article 951: published_at is null"),
+    );
+  });
+
+  it("records failure when backfill getArticle throws", async () => {
+    vi.mocked(ForemClient.getLatestArticles).mockResolvedValue([]);
+    vi.mocked(ForemClient.getArticle).mockRejectedValue(
+      new Error("API timeout"),
+    );
+    vi.mocked(ForemClient.getUserByUsername).mockResolvedValue(mockUser);
+    vi.mocked(ForemClient.getComments).mockResolvedValue([]);
+
+    const purgeChain = {
+      lt: vi.fn().mockReturnValue({
+        select: vi.fn().mockResolvedValue({ data: [], error: null }),
+      }),
+    };
+    const backfillQueryChain = {
+      eq: vi.fn().mockReturnThis(),
+      gte: vi.fn().mockResolvedValue({ data: [{ id: 952 }], error: null }),
+    };
+
+    let callCount = 0;
+    vi.mocked(supabase.from).mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return { delete: vi.fn().mockReturnValue(purgeChain) } as never;
+      }
+      if (callCount === 2) {
+        return { select: vi.fn().mockReturnValue(backfillQueryChain) } as never;
+      }
+      return {
+        upsert: vi.fn().mockResolvedValue({ error: null }),
+      } as never;
+    });
+
+    const result = await syncArticles();
+
+    expect(result.failed).toBe(1);
+    expect(result.errors).toContainEqual(
+      expect.stringContaining("Backfill article 952: API timeout"),
+    );
+  });
+
+  it("returns empty result when backfill query returns no rows", async () => {
+    vi.mocked(ForemClient.getLatestArticles).mockResolvedValue([]);
+    vi.mocked(ForemClient.getUserByUsername).mockResolvedValue(mockUser);
+    vi.mocked(ForemClient.getComments).mockResolvedValue([]);
+
+    const purgeChain = {
+      lt: vi.fn().mockReturnValue({
+        select: vi.fn().mockResolvedValue({ data: [], error: null }),
+      }),
+    };
+    const backfillQueryChain = {
+      eq: vi.fn().mockReturnThis(),
+      gte: vi.fn().mockResolvedValue({ data: [], error: null }),
+    };
+
+    let callCount = 0;
+    vi.mocked(supabase.from).mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return { delete: vi.fn().mockReturnValue(purgeChain) } as never;
+      }
+      return { select: vi.fn().mockReturnValue(backfillQueryChain) } as never;
+    });
+
+    const result = await syncArticles();
+
+    expect(result.synced).toBe(0);
+    expect(result.failed).toBe(0);
+  });
+
+  it("returns empty result when backfill query errors", async () => {
+    vi.mocked(ForemClient.getLatestArticles).mockResolvedValue([]);
+    vi.mocked(ForemClient.getUserByUsername).mockResolvedValue(mockUser);
+    vi.mocked(ForemClient.getComments).mockResolvedValue([]);
+
+    const purgeChain = {
+      lt: vi.fn().mockReturnValue({
+        select: vi.fn().mockResolvedValue({ data: [], error: null }),
+      }),
+    };
+    const backfillQueryChain = {
+      eq: vi.fn().mockReturnThis(),
+      gte: vi
+        .fn()
+        .mockResolvedValue({ data: null, error: { message: "query failed" } }),
+    };
+
+    let callCount = 0;
+    vi.mocked(supabase.from).mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return { delete: vi.fn().mockReturnValue(purgeChain) } as never;
+      }
+      return { select: vi.fn().mockReturnValue(backfillQueryChain) } as never;
+    });
+
+    const result = await syncArticles();
+
+    expect(result.synced).toBe(0);
+    expect(result.failed).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
