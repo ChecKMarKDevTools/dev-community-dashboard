@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { ArticleMetrics } from "@/types/metrics";
 import {
-  hasAnalyticsData,
   getVelocityChartData,
   getVelocityBaseline,
   getParticipationData,
@@ -41,65 +40,52 @@ function makeMetrics(overrides: Partial<ArticleMetrics> = {}): ArticleMetrics {
 }
 
 // ---------------------------------------------------------------------------
-// hasAnalyticsData
+// Null-safety: all getters handle null / undefined / empty metrics
 // ---------------------------------------------------------------------------
 
-describe("hasAnalyticsData", () => {
-  it("returns false for null", () => {
-    expect(hasAnalyticsData(null)).toBe(false);
+describe("null-safety", () => {
+  it("getVelocityChartData returns empty array for null", () => {
+    expect(getVelocityChartData(null)).toEqual([]);
   });
 
-  it("returns false for undefined", () => {
-    expect(hasAnalyticsData(undefined)).toBe(false);
+  it("getVelocityChartData returns empty array for undefined", () => {
+    expect(getVelocityChartData(undefined)).toEqual([]);
   });
 
-  it("returns false for empty metrics (no chart data)", () => {
-    expect(hasAnalyticsData(makeMetrics())).toBe(false);
+  it("getVelocityBaseline returns 0 for null", () => {
+    expect(getVelocityBaseline(null)).toBe(0);
   });
 
-  it("returns false for empty object (DB default '{}')", () => {
-    // The JSONB default is '{}' — no fields present at all
-    expect(hasAnalyticsData({} as ArticleMetrics)).toBe(false);
+  it("getParticipationData returns empty array for null", () => {
+    expect(getParticipationData(null)).toEqual([]);
   });
 
-  it("returns true when velocity_buckets has data", () => {
-    expect(
-      hasAnalyticsData(
-        makeMetrics({ velocity_buckets: [{ hour: 0, count: 1 }] }),
-      ),
-    ).toBe(true);
+  it("getSentimentData returns 100% neutral for null", () => {
+    expect(getSentimentData(null)).toEqual({
+      positive: 0,
+      neutral: 100,
+      negative: 0,
+    });
   });
 
-  it("returns true when commenter_shares has data", () => {
-    expect(
-      hasAnalyticsData(
-        makeMetrics({
-          commenter_shares: [{ username: "alice", share: 0.5 }],
-        }),
-      ),
-    ).toBe(true);
+  it("getConstructivenessData returns empty array for null", () => {
+    expect(getConstructivenessData(null)).toEqual([]);
   });
 
-  it("returns true when sentiment has non-zero values", () => {
-    expect(
-      hasAnalyticsData(
-        makeMetrics({ positive_pct: 30, neutral_pct: 70, negative_pct: 0 }),
-      ),
-    ).toBe(true);
+  it("getRiskMarkers returns all-inactive markers for null", () => {
+    const markers = getRiskMarkers(null);
+    expect(markers).toHaveLength(5);
+    expect(markers.every((m) => !m.active)).toBe(true);
   });
 
-  it("returns true when constructiveness_buckets has data", () => {
-    expect(
-      hasAnalyticsData(
-        makeMetrics({
-          constructiveness_buckets: [{ hour: 0, depth_index: 1 }],
-        }),
-      ),
-    ).toBe(true);
+  it("getVelocityChartData handles empty object (DB default '{}')", () => {
+    expect(getVelocityChartData({} as ArticleMetrics)).toEqual([]);
   });
 
-  it("returns true when risk_score > 0", () => {
-    expect(hasAnalyticsData(makeMetrics({ risk_score: 3 }))).toBe(true);
+  it("getRiskMarkers handles empty object (DB default '{}')", () => {
+    const markers = getRiskMarkers({} as ArticleMetrics);
+    expect(markers).toHaveLength(5);
+    expect(markers.every((m) => !m.active)).toBe(true);
   });
 });
 
@@ -249,11 +235,14 @@ describe("getRiskMarkers", () => {
     const markers = getRiskMarkers(m);
 
     expect(markers).toHaveLength(5);
-    expect(markers[0]).toEqual({ label: "Freq", active: true });
-    expect(markers[1]).toEqual({ label: "Short", active: true });
-    expect(markers[2]).toEqual({ label: "No Eng", active: false });
-    expect(markers[3]).toEqual({ label: "Promo", active: true });
-    expect(markers[4]).toEqual({ label: "Links", active: false });
+    expect(markers[0]).toEqual({ label: "Frequency Penalty", active: true });
+    expect(markers[1]).toEqual({ label: "Short Content", active: true });
+    expect(markers[2]).toEqual({ label: "No Engagement", active: false });
+    expect(markers[3]).toEqual({
+      label: "Promotional Keywords",
+      active: true,
+    });
+    expect(markers[4]).toEqual({ label: "Repeated Links", active: false });
   });
 
   it("returns all inactive for zero risk", () => {
