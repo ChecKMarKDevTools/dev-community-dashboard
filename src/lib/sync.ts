@@ -819,6 +819,31 @@ function isLlmActiveForSync(
 }
 
 /**
+ * Compute the `is_first_post` flag and `support_score` for an article author.
+ * Extracted to keep `deepScoreAndPersist` within cognitive-complexity limits.
+ */
+function computeSupportSignals(
+  detailedUser: ForemUser | null,
+  username: string,
+  postsByAuthor24h: Map<string, number>,
+  reaction_count: number,
+  comment_count: number,
+  help_keywords: number,
+): { is_first_post: boolean; support_score: number } {
+  const is_first_post = detailedUser
+    ? (Date.now() - new Date(detailedUser.joined_at).getTime()) /
+        (1000 * 60 * 60 * 24) <
+        30 && postsByAuthor24h.get(username) === 1
+    : false;
+  const support_score =
+    (is_first_post ? 2 : 0) +
+    (reaction_count === 0 ? 1 : 0) +
+    (comment_count === 0 ? 2 : 0) +
+    help_keywords;
+  return { is_first_post, support_score };
+}
+
+/**
  * Resolve `needs_support` with a three-tier priority so the keyword safety net
  * only fires when no real LLM result is available (current sync or cached):
  *  1. rawLlmResult.needs_support  — LLM scored comments this sync (authoritative)
@@ -970,16 +995,14 @@ async function deepScoreAndPersist(
     derived.distinct_commenters,
   );
 
-  const is_first_post = detailedUser
-    ? (Date.now() - new Date(detailedUser.joined_at).getTime()) /
-        (1000 * 60 * 60 * 24) <
-        30 && postsByAuthor24h.get(username) === 1
-    : false;
-  const support_score =
-    (is_first_post ? 2 : 0) +
-    (reaction_count === 0 ? 1 : 0) +
-    (comment_count === 0 ? 2 : 0) +
-    metrics.help_keywords;
+  const { is_first_post, support_score } = computeSupportSignals(
+    detailedUser,
+    username,
+    postsByAuthor24h,
+    reaction_count,
+    comment_count,
+    metrics.help_keywords,
+  );
 
   const storedNeedsSupport = existingMetrics?.needs_support as
     | boolean
