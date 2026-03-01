@@ -59,7 +59,7 @@ import {
   getConstructivenessData,
   getRiskMarkers,
 } from "@/lib/metrics-helpers";
-import { POSITIVE_WORDS, NEGATIVE_WORDS } from "@/lib/sync";
+import { POSITIVE_WORDS, NEGATIVE_WORDS } from "@/lib/sentiment-keywords";
 
 type DetailPanelProps = Readonly<{
   selectedPostId: number | null;

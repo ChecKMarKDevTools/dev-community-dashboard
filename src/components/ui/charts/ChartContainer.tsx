@@ -34,6 +34,7 @@ export function ChartContainer({
             <button
               type="button"
               className="group relative shrink-0 cursor-help"
+              aria-label={`Help: ${title}`}
               aria-describedby={tooltipId}
             >
               <HelpCircle className="text-text-muted group-hover:text-accent-primary group-focus:text-accent-primary h-4 w-4" />

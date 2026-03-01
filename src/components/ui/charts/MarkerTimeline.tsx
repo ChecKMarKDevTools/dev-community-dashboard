@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { cn } from "@/lib/utils";
 
 type Marker = Readonly<{
@@ -17,6 +18,7 @@ const CIRCLE_R = 8;
 const ACTIVE_R = 10;
 
 export function MarkerTimeline({ markers, className }: MarkerTimelineProps) {
+  const titleId = useId();
   const noneActive = markers.length > 0 && markers.every((m) => !m.active);
 
   // No markers at all: minimal disabled placeholder
@@ -26,9 +28,9 @@ export function MarkerTimeline({ markers, className }: MarkerTimelineProps) {
         <svg
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           className={cn("w-full", className)}
-          role="img"
-          aria-label="No risk signals detected"
+          aria-labelledby={titleId}
         >
+          <title id={titleId}>No risk signals detected</title>
           <line
             x1={PADDING.left}
             x2={WIDTH - PADDING.right}
@@ -59,11 +61,11 @@ export function MarkerTimeline({ markers, className }: MarkerTimelineProps) {
       <svg
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         className={cn("w-full", className)}
-        role="img"
-        aria-label={
-          noneActive ? "No risk signals detected" : "Risk signal timeline"
-        }
+        aria-labelledby={titleId}
       >
+        <title id={titleId}>
+          {noneActive ? "No risk signals detected" : "Risk signal timeline"}
+        </title>
         {/* Track line — dashed when no signals are active */}
         <line
           x1={PADDING.left}

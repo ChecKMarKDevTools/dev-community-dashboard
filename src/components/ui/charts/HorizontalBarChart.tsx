@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { cn } from "@/lib/utils";
 
 type BarItem = Readonly<{
@@ -27,19 +28,18 @@ export function HorizontalBarChart({
   data,
   className,
 }: HorizontalBarChartProps) {
+  const titleId = useId();
+
   if (data.length === 0) {
     return (
       <div
         className={cn("text-text-muted text-center text-sm italic", className)}
-        role="img"
-        aria-label="Empty bar chart"
       >
         No data available
       </div>
     );
   }
 
-  const maxVal = Math.max(...data.map((d) => d.value), 0.01);
   const width = 400;
   const barAreaWidth = width - LABEL_WIDTH - PADDING.left - PADDING.right;
   const height =
@@ -52,12 +52,14 @@ export function HorizontalBarChart({
     <svg
       viewBox={`0 0 ${width} ${height}`}
       className={cn("w-full", className)}
-      role="img"
-      aria-label="Participation distribution chart"
+      aria-labelledby={titleId}
     >
+      <title id={titleId}>Participation distribution chart</title>
       {data.map((item, i) => {
         const y = PADDING.top + i * (BAR_HEIGHT + BAR_GAP);
-        const barWidth = (item.value / maxVal) * barAreaWidth;
+        // values are shares in [0, 1] — scale directly so bar width matches
+        // the displayed percentage label (e.g. 0.35 → 35 % of bar area).
+        const barWidth = Math.min(item.value, 1) * barAreaWidth;
         const pct = Math.round(item.value * 100);
 
         return (

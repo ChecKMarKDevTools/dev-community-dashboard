@@ -32,4 +32,4 @@
 - Each chart component handles its own empty state (returns "No data available" or `null`).
 - `ChartContainer` wraps every chart — reuses `SectionCard`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`.
 - Data transformation from `ArticleMetrics` → chart props happens in `src/lib/metrics-helpers.ts` (not inside components).
-- `hasAnalyticsData()` gates the entire Post Analytics section in `Dashboard.tsx`.
+- The Post Analytics section in `Dashboard.tsx` is always rendered; when `metrics` is `null` or missing, the individual chart components surface their own empty states in accordance with the rules above.

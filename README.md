@@ -244,12 +244,12 @@ Each article is classified at sync time (not at read time) into one of four atte
 
 The detail panel groups information into three sections. These are display-level labels, not scoring inputs.
 
-| Section                  | Shows                                                                                                    |
-| ------------------------ | -------------------------------------------------------------------------------------------------------- |
-| **Conversation Signals** | Per-thread metrics: Word Count, Participants, Effort Level, Attention Shift (values rounded to integers) |
-| **Discussion State**     | Activity Level, Signal Divergence (with risk markers), and Constructiveness with qualitative labels      |
-| **Thread Momentum**      | A one-line observation about the current pace of the conversation                                        |
-| **Post Analytics**       | Per-post visualizations gated on available data (see below)                                              |
+| Section                  | Shows                                                                                                      |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| **Conversation Signals** | Per-thread metrics: Word Count, Participants, Effort Level, Attention Shift (values rounded to integers)   |
+| **Discussion State**     | Activity Level, Signal Divergence (with risk markers), and Constructiveness with qualitative labels        |
+| **Thread Momentum**      | A one-line observation about the current pace of the conversation                                          |
+| **Post Analytics**       | Per-post visualizations always rendered; charts show empty states when metrics are unavailable (see below) |
 
 ### Post Analytics Visualizations
 
@@ -337,6 +337,31 @@ gcloud run deploy dev-community-dashboard \
 ```
 
 Once deployed, set `APP_URL` as a **GitHub repository variable** (not a secret — it is a public URL) and `CRON_SECRET` as a **GitHub secret** so the cron workflow (`.github/workflows/cron.yml`) can reach the live endpoint. By default, this workflow uses a `schedule` trigger to run every 2 hours; to change or disable this cadence, edit or remove the `schedule` block in that file.
+
+---
+
+## GitHub Actions Workflows
+
+Three workflows live in `.github/workflows/`. All CI checks run in `ci.yml`; do not create additional workflow files for individual checks.
+
+| Workflow           | File                 | Trigger                          | What it does                                                                                                                                                                                                         |
+| ------------------ | -------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **CI**             | `ci.yml`             | Push to `main`, Pull Request     | Format (Prettier), ESLint, Stylelint, actionlint, Hadolint (Docker), Vitest with coverage (artifact uploaded for SonarCloud), SonarCloud scan, Lighthouse CI (desktop — results written to `.lighthouseci/` locally) |
+| **2-Hour Sync**    | `cron.yml`           | Schedule (`0 */2 * * *`), manual | POSTs to `$APP_URL/api/cron` with `Authorization: Bearer $CRON_SECRET`; skips silently if either variable is unset; cancels in-progress runs to avoid overlap                                                        |
+| **Release Please** | `release-please.yml` | Push to `main`                   | Opens and updates automated release PRs (Conventional Commits → CHANGELOG + version bump); merging the release PR creates the GitHub Release                                                                         |
+
+### Required repository configuration
+
+| Name           | Type     | Used by           | Notes                                                                                           |
+| -------------- | -------- | ----------------- | ----------------------------------------------------------------------------------------------- |
+| `APP_URL`      | Variable | `cron.yml`        | Public Cloud Run URL — not a secret, safe to log                                                |
+| `CRON_SECRET`  | Secret   | `cron.yml`        | Bearer token; must match the `CRON_SECRET` env var on the deployed service                      |
+| `SONAR_TOKEN`  | Secret   | `ci.yml`          | SonarCloud token for the `ChecKMarKDevTools_forem-community-dashboard` project                  |
+| `GITHUB_TOKEN` | Built-in | `ci.yml`, release | Provided automatically; `release-please.yml` needs `contents: write` and `pull-requests: write` |
+
+### Lighthouse CI
+
+Lighthouse runs as the last step in `ci.yml` (`pnpm lhci:desktop`). Results are written to `.lighthouseci/` (filesystem target — no external upload service or status-check callback). Minimum thresholds: performance ≥ 0.90 (desktop), accessibility ≥ 0.90, best-practices ≥ 0.90, SEO ≥ 0.90. The `.lighthouseci/` directory is git-ignored.
 
 ---
 

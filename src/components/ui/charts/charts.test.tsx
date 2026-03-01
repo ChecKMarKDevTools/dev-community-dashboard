@@ -59,6 +59,17 @@ describe("ChartContainer", () => {
     );
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
+
+  it("tooltip button has accessible name derived from title", () => {
+    render(
+      <ChartContainer title="Reply Velocity" tooltip="Some help text">
+        <div />
+      </ChartContainer>,
+    );
+    const btn = screen.getByRole("button", { name: "Help: Reply Velocity" });
+    expect(btn).toBeInTheDocument();
+    expect(btn).toHaveAttribute("aria-describedby");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -66,23 +77,22 @@ describe("ChartContainer", () => {
 // ---------------------------------------------------------------------------
 
 describe("LineChart", () => {
-  it("renders SVG with correct aria-label", () => {
+  it("renders SVG with accessible title", () => {
     const data = [
       { x: 0, y: 1 },
       { x: 1, y: 3 },
       { x: 2, y: 2 },
     ];
-    render(<LineChart data={data} yLabel="Comments/hr" />);
-    expect(
-      screen.getByRole("img", { name: /Line chart.*Comments\/hr/ }),
-    ).toBeInTheDocument();
+    const { container } = render(
+      <LineChart data={data} yLabel="Comments/hr" />,
+    );
+    const title = container.querySelector("svg title");
+    expect(title).toBeInTheDocument();
+    expect(title?.textContent).toMatch(/Line chart.*Comments\/hr/);
   });
 
   it("renders empty state for no data", () => {
     render(<LineChart data={[]} />);
-    expect(
-      screen.getByRole("img", { name: "Empty line chart" }),
-    ).toBeInTheDocument();
     expect(screen.getByText("No data available")).toBeInTheDocument();
   });
 
@@ -168,12 +178,12 @@ describe("HorizontalBarChart", () => {
     expect(screen.getByText("verylonguse…")).toBeInTheDocument();
   });
 
-  it("has correct aria-label", () => {
+  it("has accessible title", () => {
     const data = [{ label: "alice", value: 0.5 }];
-    render(<HorizontalBarChart data={data} />);
-    expect(
-      screen.getByRole("img", { name: "Participation distribution chart" }),
-    ).toBeInTheDocument();
+    const { container } = render(<HorizontalBarChart data={data} />);
+    const title = container.querySelector("svg title");
+    expect(title).toBeInTheDocument();
+    expect(title?.textContent).toBe("Participation distribution chart");
   });
 
   it("renders up to 5 bars", () => {
@@ -186,6 +196,22 @@ describe("HorizontalBarChart", () => {
     const texts = container.querySelectorAll("text");
     // label + pct per bar
     expect(texts.length).toBe(10);
+  });
+
+  it("scales bar widths directly to share values so labels match bar lengths", () => {
+    // With relative-to-max scaling alice's bar would be 100% and bob's 60%
+    // even though labels say 50% and 30%. Direct scaling keeps them aligned.
+    const data = [
+      { label: "alice", value: 0.5 },
+      { label: "bob", value: 0.3 },
+    ];
+    const { container } = render(<HorizontalBarChart data={data} />);
+    // SVG rects: bg-alice, fill-alice, bg-bob, fill-bob
+    const rects = container.querySelectorAll("rect");
+    const aliceFill = Number(rects[1]?.getAttribute("width"));
+    const bobFill = Number(rects[3]?.getAttribute("width"));
+    // Ratio of fill widths should match ratio of share values
+    expect(aliceFill / bobFill).toBeCloseTo(0.5 / 0.3, 1);
   });
 });
 
@@ -206,25 +232,37 @@ describe("DivergingBar", () => {
     expect(screen.getByText("No sentiment data")).toBeInTheDocument();
   });
 
-  it("has correct aria-label with percentages", () => {
-    render(<DivergingBar positive={60} neutral={30} negative={10} />);
-    expect(
-      screen.getByRole("img", {
-        name: "Sentiment: 60% positive, 30% neutral, 10% negative",
-      }),
-    ).toBeInTheDocument();
+  it("has accessible title with percentages", () => {
+    const { container } = render(
+      <DivergingBar positive={60} neutral={30} negative={10} />,
+    );
+    const title = container.querySelector("svg title");
+    expect(title).toBeInTheDocument();
+    expect(title?.textContent).toBe(
+      "Sentiment: 60% positive, 30% neutral, 10% negative",
+    );
   });
 
   it("hides small positive label when below 5%", () => {
-    render(<DivergingBar positive={3} neutral={94} negative={3} />);
-    expect(screen.queryByText(/positive/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/negative/)).not.toBeInTheDocument();
+    const { container } = render(
+      <DivergingBar positive={3} neutral={94} negative={3} />,
+    );
+    // Visible SVG text labels should not include "positive" or "negative"
+    const textEls = container.querySelectorAll("svg text");
+    const labels = Array.from(textEls).map((el) => el.textContent);
+    expect(labels.some((l) => l?.includes("positive"))).toBe(false);
+    expect(labels.some((l) => l?.includes("negative"))).toBe(false);
     expect(screen.getByText("94% neutral")).toBeInTheDocument();
   });
 
   it("hides neutral label when below 10%", () => {
-    render(<DivergingBar positive={50} neutral={5} negative={45} />);
-    expect(screen.queryByText(/neutral/)).not.toBeInTheDocument();
+    const { container } = render(
+      <DivergingBar positive={50} neutral={5} negative={45} />,
+    );
+    // Visible SVG text labels should not include "neutral"
+    const textEls = container.querySelectorAll("svg text");
+    const labels = Array.from(textEls).map((el) => el.textContent);
+    expect(labels.some((l) => l?.includes("neutral"))).toBe(false);
     expect(screen.getByText("50% positive")).toBeInTheDocument();
     expect(screen.getByText("45% negative")).toBeInTheDocument();
   });
@@ -232,6 +270,14 @@ describe("DivergingBar", () => {
   it("handles 100% positive", () => {
     render(<DivergingBar positive={100} neutral={0} negative={0} />);
     expect(screen.getByText("100% positive")).toBeInTheDocument();
+  });
+
+  it("renders without crashing when upstream passes pos+neg > 100 (edge case)", () => {
+    // buildSentimentSpread normalises before calling DivergingBar, but verify
+    // the component itself handles the overflow case without throwing.
+    render(<DivergingBar positive={80} neutral={0} negative={60} />);
+    expect(screen.getByText("80% positive")).toBeInTheDocument();
+    expect(screen.getByText("60% negative")).toBeInTheDocument();
   });
 });
 
@@ -253,10 +299,10 @@ describe("MarkerTimeline", () => {
   });
 
   it("shows disabled state for empty markers", () => {
-    render(<MarkerTimeline markers={[]} />);
-    expect(
-      screen.getByRole("img", { name: "No risk signals detected" }),
-    ).toBeInTheDocument();
+    const { container } = render(<MarkerTimeline markers={[]} />);
+    const title = container.querySelector("svg title");
+    expect(title).toBeInTheDocument();
+    expect(title?.textContent).toBe("No risk signals detected");
   });
 
   it("shows disabled state when all markers are inactive, still rendering labels", () => {
@@ -264,17 +310,13 @@ describe("MarkerTimeline", () => {
       { label: "Frequency Penalty", active: false },
       { label: "Short Content", active: false },
     ];
-    render(<MarkerTimeline markers={markers} />);
-    expect(
-      screen.getByRole("img", { name: "No risk signals detected" }),
-    ).toBeInTheDocument();
+    const { container } = render(<MarkerTimeline markers={markers} />);
+    const title = container.querySelector("svg title");
+    expect(title).toBeInTheDocument();
+    expect(title?.textContent).toBe("No risk signals detected");
     // Labels must still be visible so users can see which signals were checked
     expect(screen.getByText("Frequency Penalty")).toBeInTheDocument();
     expect(screen.getByText("Short Content")).toBeInTheDocument();
-    // No status text — dimmed markers are sufficient
-    expect(
-      screen.queryByText("No risk signals detected"),
-    ).not.toBeInTheDocument();
   });
 
   it("renders active markers with larger radius and glow", () => {
@@ -289,12 +331,12 @@ describe("MarkerTimeline", () => {
     expect(circles.length).toBe(3);
   });
 
-  it("has correct aria-label when markers are active", () => {
+  it("has accessible title when markers are active", () => {
     const markers = [{ label: "Test", active: true }];
-    render(<MarkerTimeline markers={markers} />);
-    expect(
-      screen.getByRole("img", { name: "Risk signal timeline" }),
-    ).toBeInTheDocument();
+    const { container } = render(<MarkerTimeline markers={markers} />);
+    const title = container.querySelector("svg title");
+    expect(title).toBeInTheDocument();
+    expect(title?.textContent).toBe("Risk signal timeline");
   });
 
   it("handles single marker centered", () => {

@@ -33,6 +33,7 @@ export function ScoreBar({
             type="button"
             className="group relative shrink-0 cursor-help"
             aria-describedby={tooltipId}
+            aria-label={`About ${label}`}
           >
             <HelpCircle className="text-text-muted group-hover:text-accent-primary group-focus:text-accent-primary h-3.5 w-3.5" />
             <span
