@@ -787,6 +787,80 @@ async function ensureAuthorUpserted(
 }
 
 /**
+ * Backfill articles that were persisted with empty metrics (e.g. because the
+ * metrics column did not exist in PostgREST's cached schema at the time of the
+ * original sync, or because the paginated API didn't return them).
+ *
+ * Queries Supabase for articles within the sync window that have empty `{}`
+ * metrics, fetches each individually from the Forem API by ID, and re-runs
+ * `deepScoreAndPersist` on them.
+ */
+async function backfillEmptyMetrics(
+  allArticles: ForemArticle[],
+  userCache: Map<string, ForemUser | null>,
+  upsertedAuthors: Set<string>,
+): Promise<SyncResult> {
+  const errors: string[] = [];
+  let synced = 0;
+  let failed = 0;
+
+  const windowCutoff = new Date(
+    Date.now() - SYNC_WINDOW_HOURS * 60 * 60 * 1000,
+  ).toISOString();
+  const { data: emptyRows, error: queryError } = await supabase
+    .from("articles")
+    .select("id")
+    .eq("metrics", {})
+    .gte("published_at", windowCutoff);
+
+  if (queryError || !emptyRows || emptyRows.length === 0)
+    return { synced, failed, errors };
+
+  // Build author frequency map from what we already fetched
+  const postsByAuthor24h = buildAuthorFrequencies(allArticles);
+
+  for (const row of emptyRows) {
+    try {
+      const article = await ForemClient.getArticle(row.id, false);
+      const username = article.user.username;
+      const age_hours = getAgeHours(article.published_at);
+      const word_count = article.reading_time_minutes * 200;
+      const author_post_frequency = postsByAuthor24h.get(username) || 1;
+      const preliminary_score =
+        article.public_reactions_count +
+        article.comments_count * 2 +
+        word_count / 100 -
+        age_hours -
+        author_post_frequency;
+
+      const detailedUser = await resolveUser(username, userCache);
+      if (detailedUser) {
+        await ensureAuthorUpserted(username, detailedUser, upsertedAuthors);
+      }
+
+      await deepScoreAndPersist({
+        article,
+        username,
+        word_count,
+        age_hours,
+        author_post_frequency,
+        preliminary_score,
+        detailedUser,
+        postsByAuthor24h,
+      });
+
+      synced++;
+    } catch (err: unknown) {
+      failed++;
+      const message = err instanceof Error ? err.message : "Unknown error";
+      errors.push(`Backfill article ${row.id}: ${message}`);
+    }
+  }
+
+  return { synced, failed, errors };
+}
+
+/**
  * Main sync entry point.
  *
  * Fetches all articles published within the last SYNC_WINDOW_HOURS (7 days),
@@ -848,6 +922,20 @@ export async function syncArticles(maxToProcess?: number): Promise<SyncResult> {
         const message = err instanceof Error ? err.message : "Unknown error";
         errors.push(`Article ${candidate.article.id}: ${message}`);
       }
+    }
+
+    // Backfill: re-process articles that have empty metrics (PostgREST schema
+    // cache miss during initial sync, or articles the paginated API didn't
+    // return). Fetch each individually by ID and deep-score them.
+    if (maxToProcess === undefined) {
+      const backfillResult = await backfillEmptyMetrics(
+        allArticles,
+        userCache,
+        upsertedAuthors,
+      );
+      synced += backfillResult.synced;
+      failed += backfillResult.failed;
+      errors.push(...backfillResult.errors);
     }
 
     return { synced, failed, errors };

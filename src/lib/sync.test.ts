@@ -99,11 +99,17 @@ function makeComment(overrides: Partial<ForemComment> = {}): ForemComment {
   };
 }
 
-/** Resets the supabase.from mock to return a fresh upsert chain. */
+/** Resets the supabase.from mock to return a fresh upsert chain.
+ *  The select chain (select → eq → gte) resolves to empty data so the
+ *  backfillEmptyMetrics step is a no-op in unit tests. */
 function resetSupabaseMock() {
+  const selectChain = {
+    eq: vi.fn().mockReturnThis(),
+    gte: vi.fn().mockResolvedValue({ data: [], error: null }),
+  };
   vi.mocked(supabase.from).mockReturnValue({
     upsert: vi.fn().mockResolvedValue({ error: null }),
-    select: vi.fn().mockReturnThis(),
+    select: vi.fn().mockReturnValue(selectChain),
   } as never);
 }
 

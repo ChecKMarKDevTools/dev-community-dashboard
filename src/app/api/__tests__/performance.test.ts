@@ -167,8 +167,13 @@ function buildCronMocks(articleCount: number) {
   (ForemClient.getLatestArticles as Mock).mockResolvedValue(articles);
   (ForemClient.getUserByUsername as Mock).mockResolvedValue(null);
   (ForemClient.getComments as Mock).mockResolvedValue([]);
+  const selectChain = {
+    eq: vi.fn().mockReturnThis(),
+    gte: vi.fn().mockResolvedValue({ data: [], error: null }),
+  };
   (supabase.from as Mock).mockReturnValue({
     upsert: vi.fn().mockResolvedValue({ data: null, error: null }),
+    select: vi.fn().mockReturnValue(selectChain),
   });
   return articles;
 }
