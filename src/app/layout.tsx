@@ -42,7 +42,11 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
+      {/* suppressHydrationWarning: browser extensions (e.g. Colorzilla)
+         inject attributes like cz-shortcut-listen on <body> before React
+         hydrates, causing a harmless mismatch. */}
       <body
+        suppressHydrationWarning
         className={`${marcellus.variable} ${sourceSerif.variable} antialiased`}
       >
         {children}
