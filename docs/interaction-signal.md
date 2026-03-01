@@ -81,8 +81,8 @@ the final prompt string stays within the stated limits:
 - Per-comment: 500 characters each
 - Total comments: 12,000 characters cumulative (≈ 23 full-length comments)
 
-gpt-5-nano supports a 400K-token context window (~1.6M chars); these limits
-are intentionally conservative to keep per-sync costs predictable while still
+gpt-5-nano supports ~272K input tokens (~1.1M chars); these limits are
+intentionally conservative to keep per-sync costs predictable while still
 covering a typical thread in full.
 
 ---

@@ -37,7 +37,7 @@ export interface LLMConversationResponse {
 // Constants
 // ---------------------------------------------------------------------------
 
-// gpt-5-nano supports a 400K token context window (~1.6M chars).
+// gpt-5-nano supports ~272K input tokens (~1.1M chars); gpt-5-mini supports ~400K.
 // These limits are intentionally conservative to keep per-sync costs predictable
 // while still covering a full typical thread (≈ 20–25 comments at 500 chars each).
 const POST_CHAR_LIMIT = 4000;
