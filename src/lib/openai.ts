@@ -57,7 +57,7 @@ RULES:
 - Compute overall volatility: 0.0 (all comments have similar tone) to 1.0 (extreme variation in tone across comments).
 - Set needs_support to true if the post body contains signals of emotional distress, mental health struggle, burnout, isolation, or explicit help-seeking. Only flag genuine distress — not routine technical questions or casual frustration.
 - Never infer beyond available text. Score only what is present.
-- Do not explain. Output only valid JSON.`;
+- Do not explain. Output only valid structured JSON.`;
 
 const RESPONSE_SCHEMA = {
   type: "json_schema" as const,
