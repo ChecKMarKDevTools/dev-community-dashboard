@@ -146,6 +146,23 @@ The detail panel groups information into three sections. These are display-level
 | **Conversation Signals** | Per-thread metrics: Word Count, Participants, Effort Score, Attention Shift (values rounded to integers) |
 | **Discussion State**     | Activity Level, Policy Risk, and Constructiveness with qualitative labels (Low / Moderate / High)        |
 | **Thread Momentum**      | A one-line observation about the current pace of the conversation                                        |
+| **Post Analytics**       | Per-post visualizations gated on available data (see below)                                              |
+
+### Post Analytics Visualizations
+
+When the sync pipeline computes enough data for a post, the detail panel renders five chart types. These show motion and trajectory for a single post against its own baselines — never comparing posts to each other.
+
+| Chart                          | Component            | Data Source                     | What It Shows                                                        |
+| ------------------------------ | -------------------- | ------------------------------- | -------------------------------------------------------------------- |
+| **Reply Velocity**             | `LineChart`          | `velocity_buckets`              | Hourly comment arrivals with a dashed baseline (average)             |
+| **Participation Distribution** | `HorizontalBarChart` | `commenter_shares`              | Top 5 commenters by share of total comments                          |
+| **Sentiment Spread**           | `DivergingBar`       | `positive/neutral/negative_pct` | 3-segment bar showing sentiment balance                              |
+| **Constructiveness Trend**     | `LineChart`          | `constructiveness_buckets`      | Average reply depth per hour (higher = more threaded discussion)     |
+| **Risk Signal Timeline**       | `MarkerTimeline`     | `risk_components`               | 5 risk markers (Freq, Short, No Eng, Promo, Links) — active or inert |
+
+All charts are custom SVG components with zero external chart dependencies. They use the CSS custom property theme (`--chart-grid`, `--chart-axis`, `--chart-series-primary/secondary/tertiary`) for automatic light/dark mode support.
+
+The Risk Signal Timeline only renders when `risk_score > 0`. The entire Post Analytics section is gated behind `hasAnalyticsData()`, which checks whether any chart has meaningful data to display.
 
 ---
 
@@ -233,6 +250,8 @@ If you are contributing, here is where things live:
 | Scoring & classification logic                          | `src/lib/sync.ts`                                              |
 | Sync pipeline (Forem → Supabase)                        | `src/lib/sync.ts`                                              |
 | Dashboard UI components                                 | `src/components/Dashboard.tsx` and `src/components/ui/`        |
+| Chart components (SVG)                                  | `src/components/ui/charts/`                                    |
+| Chart data transformation helpers                       | `src/lib/metrics-helpers.ts`                                   |
 | Display helpers (labels, narratives, signal formatting) | `src/lib/dashboard-helpers.ts`                                 |
 | API routes                                              | `src/app/api/`                                                 |
 | Tests                                                   | Co-located `*.test.ts` / `*.test.tsx` files next to the source |

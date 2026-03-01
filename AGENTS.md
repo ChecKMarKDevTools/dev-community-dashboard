@@ -16,3 +16,18 @@
 - **Commits**: Make small, atomic commits with clear Conventional Commit messages. Each commit should address a single concern (e.g., one for scoring fixes, one for tests, one for docs). Always include the `Signed-off-by` flag (`-s`), the `Co-Authored-By` attribution line, and always use GPG signing (`-S`).
 - **Pre-commit Workflow**: Before committing, always: (1) run Sonar on all code, (2) ensure test coverage follows AGENTS.md testing rules, (3) update relevant documentation, (4) run all CI checks (`pnpm format:check`, `pnpm lint`, `pnpm test`, `pnpm build`).
 - **UI Verification**: When working on UI changes, you MUST use browser automation tools to navigate to the page and visually verify results from the user's perspective before returning a response. Never assume UI changes are correct without seeing them rendered.
+
+## Database Schema Notes
+
+- **`articles.metrics`**: JSONB column (`DEFAULT '{}'`) storing per-article analytics computed during sync. Contains velocity buckets, commenter shares, sentiment percentages, constructiveness buckets, and risk component breakdown. See `src/types/metrics.ts` for the `ArticleMetrics` interface.
+
+## Chart Component Patterns
+
+- All chart components live in `src/components/ui/charts/` with a barrel export at `index.ts`.
+- Charts are custom SVG — no external chart library. This keeps the dependency count minimal and allows full theme control.
+- Theme colors use CSS custom properties: `--chart-grid`, `--chart-axis`, `--chart-series-primary`, `--chart-series-secondary`, `--chart-series-tertiary` (defined in `globals.css`).
+- Component prop types must use `Readonly<T>` and array props must use `ReadonlyArray<T>` (Sonar S6759).
+- Each chart component handles its own empty state (returns "No data available" or `null`).
+- `ChartContainer` wraps every chart — reuses `SectionCard`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`.
+- Data transformation from `ArticleMetrics` → chart props happens in `src/lib/metrics-helpers.ts` (not inside components).
+- `hasAnalyticsData()` gates the entire Post Analytics section in `Dashboard.tsx`.
