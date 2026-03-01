@@ -190,8 +190,17 @@ function processOneComment(
   parentAuthor?: string,
   depth: number = 0,
 ): void {
-  const commenter = c.user.username;
-  metrics.uniqueCommenters.add(commenter);
+  // Deleted Forem accounts return null usernames — skip identity-dependent
+  // tracking but still count the comment's text, timestamps, and keywords.
+  const commenter = c.user?.username ?? null;
+
+  if (commenter) {
+    metrics.uniqueCommenters.add(commenter);
+    metrics.commenter_comment_counts.set(
+      commenter,
+      (metrics.commenter_comment_counts.get(commenter) ?? 0) + 1,
+    );
+  }
 
   const txt = c.body_html.toLowerCase();
   metrics.totalCommentWords += countWords(c.body_html);
@@ -201,22 +210,17 @@ function processOneComment(
   metrics.comment_timestamps.push(commentDate);
   metrics.comment_depths.push({ timestamp: commentDate, depth });
 
-  // Track per-commenter comment counts for participation distribution
-  metrics.commenter_comment_counts.set(
-    commenter,
-    (metrics.commenter_comment_counts.get(commenter) ?? 0) + 1,
-  );
-
   if (parentAuthor) {
     metrics.replies_with_parent++;
     if (c.children && c.children.length > 0) {
-      const replyAuthor = c.children[0].user.username;
-      if (replyAuthor === parentAuthor) metrics.alternating_pairs++;
+      const replyAuthor = c.children[0].user?.username ?? null;
+      if (replyAuthor && replyAuthor === parentAuthor)
+        metrics.alternating_pairs++;
     }
   }
 
   analyzeSentiment(txt.split(/\W+/), metrics);
-  detectKeywords(txt, commenter, articleAuthor, metrics);
+  detectKeywords(txt, commenter ?? "", articleAuthor, metrics);
   trackExternalLinks(c.body_html, metrics);
 }
 
@@ -235,7 +239,7 @@ function processCommentTree(
         c.children,
         articleAuthor,
         metrics,
-        c.user.username,
+        c.user?.username ?? undefined,
         depth + 1,
       );
     }
@@ -658,7 +662,9 @@ async function deepScoreAndPersist(
 
   if (articleError) throw new Error(articleError.message);
 
-  // Save commenters for simple integrity tracking mapping
+  // Save commenters for simple integrity tracking mapping.
+  // uniqueCommenters only contains non-null usernames (deleted accounts are
+  // filtered out in processOneComment), so every entry is safe to upsert.
   for (const commenter of Array.from(metrics.uniqueCommenters)) {
     const { error: commenterError } = await supabase
       .from("commenters")

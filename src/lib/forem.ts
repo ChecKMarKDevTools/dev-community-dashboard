@@ -69,8 +69,9 @@ export interface ForemComment {
   created_at: string;
   body_html: string;
   user: {
-    name: string;
-    username: string;
+    name: string | null;
+    /** Null when the Forem account has been deleted. */
+    username: string | null;
     twitter_username: string | null;
     github_username: string | null;
     website_url: string | null;
@@ -80,10 +81,23 @@ export interface ForemComment {
   children: ForemComment[];
 }
 
+let warnedMissingKey = false;
+
 /** Returns headers that include the API key when DEV_API_KEY is configured. */
 function buildHeaders(): Record<string, string> {
   const apiKey = process.env.DEV_API_KEY;
+  if (!apiKey && !warnedMissingKey) {
+    warnedMissingKey = true;
+    console.warn(
+      "[forem] DEV_API_KEY is not set — requests are unauthenticated with lower rate limits.",
+    );
+  }
   return apiKey ? { "api-key": apiKey } : {};
+}
+
+/** Reset the one-time warning flag (test-only). */
+export function resetMissingKeyWarning(): void {
+  warnedMissingKey = false;
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000;

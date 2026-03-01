@@ -1077,6 +1077,124 @@ describe("syncArticles scoring pipeline", () => {
     expect(ForemClient.getUserByUsername).toHaveBeenCalledTimes(1);
   });
 
+  // ── Null username handling (deleted Forem accounts) ──────────────────
+
+  it("skips commenter tracking for comments with null usernames", async () => {
+    const article = makeArticle({
+      id: 700,
+      public_reactions_count: 5,
+      comments_count: 2,
+      reading_time_minutes: 3,
+    });
+
+    const comments: ForemComment[] = [
+      // Normal commenter
+      makeComment({
+        id_code: "c700_1",
+        body_html: "<p>great post</p>",
+        user: {
+          name: "Normal User",
+          username: "normaluser",
+          twitter_username: null,
+          github_username: null,
+          website_url: null,
+          profile_image: "",
+          profile_image_90: "",
+        },
+      }),
+      // Deleted account with null username
+      makeComment({
+        id_code: "c700_2",
+        body_html: "<p>deleted user comment</p>",
+        user: {
+          name: null,
+          username: null,
+          twitter_username: null,
+          github_username: null,
+          website_url: null,
+          profile_image: "",
+          profile_image_90: "",
+        },
+      }),
+    ];
+
+    setupBasicMocks([article], comments);
+
+    const result = await syncArticles(1);
+
+    expect(result.synced).toBe(1);
+    expect(result.failed).toBe(0);
+  });
+
+  it("handles nested replies from deleted accounts without crashing", async () => {
+    const article = makeArticle({
+      id: 710,
+      public_reactions_count: 2,
+      comments_count: 3,
+      reading_time_minutes: 3,
+    });
+
+    const comments: ForemComment[] = [
+      {
+        type_of: "comment",
+        id_code: "c710_root",
+        created_at: new Date().toISOString(),
+        body_html: "<p>root comment</p>",
+        user: {
+          name: "Alice",
+          username: "alice",
+          twitter_username: null,
+          github_username: null,
+          website_url: null,
+          profile_image: "",
+          profile_image_90: "",
+        },
+        children: [
+          {
+            type_of: "comment",
+            id_code: "c710_deleted_reply",
+            created_at: new Date().toISOString(),
+            body_html: "<p>reply from deleted account</p>",
+            user: {
+              name: null,
+              username: null,
+              twitter_username: null,
+              github_username: null,
+              website_url: null,
+              profile_image: "",
+              profile_image_90: "",
+            },
+            children: [
+              {
+                type_of: "comment",
+                id_code: "c710_grandchild",
+                created_at: new Date().toISOString(),
+                body_html: "<p>reply to deleted user</p>",
+                user: {
+                  name: "Bob",
+                  username: "bob",
+                  twitter_username: null,
+                  github_username: null,
+                  website_url: null,
+                  profile_image: "",
+                  profile_image_90: "",
+                },
+                children: [],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    setupBasicMocks([article], comments);
+
+    const result = await syncArticles(1);
+
+    expect(result.synced).toBe(1);
+    expect(result.failed).toBe(0);
+  });
+
   it("includes metrics JSONB in the article upsert payload", async () => {
     const article = makeArticle({
       id: 600,
