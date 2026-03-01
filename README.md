@@ -4,14 +4,26 @@
 
 <div align="center">
 
+<!-- Community -->
+
+[![GitHub Stars](https://img.shields.io/github/stars/ChecKMarKDevTools/dev-community-dashboard?style=flat&logo=github&logoColor=white)](https://github.com/ChecKMarKDevTools/dev-community-dashboard/stargazers)
+[![License](https://img.shields.io/badge/License-PolyForm_Shield_1.0.0-blue?style=flat)](./LICENSE)
+
 <!-- Build & Quality -->
 
 [![CI](https://img.shields.io/github/actions/workflow/status/ChecKMarKDevTools/dev-community-dashboard/ci.yml?branch=main&style=flat&logo=githubactions&logoColor=white&label=CI)](https://github.com/ChecKMarKDevTools/dev-community-dashboard/actions/workflows/ci.yml)
 [![Cron Sync](https://img.shields.io/github/actions/workflow/status/ChecKMarKDevTools/dev-community-dashboard/cron.yml?branch=main&style=flat&logo=githubactions&logoColor=white&label=Cron%20Sync)](https://github.com/ChecKMarKDevTools/dev-community-dashboard/actions/workflows/cron.yml)
 [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=ChecKMarKDevTools_forem-community-dashboard&metric=alert_status)](https://sonarcloud.io/summary/overall?id=ChecKMarKDevTools_forem-community-dashboard)
 [![SonarCloud Coverage](https://sonarcloud.io/api/project_badges/measure?project=ChecKMarKDevTools_forem-community-dashboard&metric=coverage)](https://sonarcloud.io/summary/overall?id=ChecKMarKDevTools_forem-community-dashboard)
+
+<!-- Scans -->
+
+[![TruffleHog](https://img.shields.io/badge/TruffleHog-Secret_Scan-000000?style=flat&logo=trufflehog&logoColor=white)](https://trufflesecurity.com/trufflehog)
 [![Semgrep](https://img.shields.io/badge/Semgrep-SAST-4B11A8?style=flat&logo=semgrep&logoColor=white)](https://semgrep.dev)
-[![CodeQL](https://img.shields.io/github/actions/workflow/status/ChecKMarKDevTools/dev-community-dashboard/ci.yml?branch=main&style=flat&logo=github&logoColor=white&label=CodeQL)](https://github.com/ChecKMarKDevTools/dev-community-dashboard/actions/workflows/ci.yml)
+[![Hadolint](https://img.shields.io/badge/Hadolint-Dockerfile_Lint-2496ED?style=flat&logo=docker&logoColor=white)](https://github.com/hadolint/hadolint)
+[![actionlint](https://img.shields.io/badge/actionlint-GHA_Lint-2088FF?style=flat&logo=githubactions&logoColor=white)](https://github.com/rhysd/actionlint)
+[![Stylelint](https://img.shields.io/badge/Stylelint-CSS_Lint-263238?style=flat&logo=stylelint&logoColor=white)](https://stylelint.io)
+[![Lighthouse](https://img.shields.io/badge/Lighthouse-A11y_≥90-F44B21?style=flat&logo=lighthouse&logoColor=white)](https://developer.chrome.com/docs/lighthouse)
 
 <!-- Tooling -->
 
@@ -48,6 +60,8 @@ A signal-surfacing tool for [Forem](https://forem.com/) communities (dev.to and 
 This is **not** a moderation tool or a scorecard. It is designed to help helpers know where to look.
 
 **Production:** [https://dev-signal.checkmarkdevtools.dev](https://dev-signal.checkmarkdevtools.dev) _(Cloud Run — deployed post-initial-release)_
+
+v1.0.0 was created for the [DEV Weekend Challenge](https://dev.to/devteam/happening-now-dev-weekend-challenge-submissions-due-march-2-at-759am-utc-5fg8).
 
 ---
 
