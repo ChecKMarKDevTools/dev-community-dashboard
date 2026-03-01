@@ -3,6 +3,9 @@ import { vi, type Mock } from "vitest";
 
 describe("ForemClient", () => {
   beforeEach(() => {
+    // Reset queue before each test so the 1-second batch-cooldown timer
+    // starts from zero and doesn't cause real delays between tests.
+    foremQueue.reset();
     globalThis.fetch = vi.fn();
   });
 
@@ -412,6 +415,9 @@ describe("ForemClient — missing DEV_API_KEY warning", () => {
     });
 
     await ForemClient.getLatestArticles(1, 10);
+    // Reset queue cooldown so the second call doesn't wait the full 1s batch
+    // delay — the warning flag is independent of the request queue state.
+    foremQueue.reset();
     await ForemClient.getLatestArticles(2, 10);
 
     expect(warnSpy).toHaveBeenCalledTimes(1);
