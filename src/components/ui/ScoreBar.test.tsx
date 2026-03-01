@@ -11,11 +11,14 @@ describe("ScoreBar", () => {
     colorClass: "bg-state-warning",
   };
 
-  it("renders label, sublabel, and description", () => {
+  it("renders label, sublabel, and description as tooltip", () => {
     render(<ScoreBar {...defaultProps} />);
     expect(screen.getByText("Activity Level")).toBeInTheDocument();
     expect(screen.getByText("High")).toBeInTheDocument();
-    expect(screen.getByText("Very active discussion.")).toBeInTheDocument();
+    // Description lives in the tooltip span (role="tooltip"), still in the DOM
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      "Very active discussion.",
+    );
   });
 
   it("computes correct width percentage", () => {
@@ -63,5 +66,12 @@ describe("ScoreBar", () => {
     render(<ScoreBar {...defaultProps} />);
     const labelEl = screen.getByText("Activity Level");
     expect(labelEl.tagName).toBe("SPAN");
+  });
+
+  it("tooltip button has accessible name derived from label", () => {
+    render(<ScoreBar {...defaultProps} />);
+    const btn = screen.getByRole("button", { name: "About Activity Level" });
+    expect(btn).toBeInTheDocument();
+    expect(btn).toHaveAttribute("aria-describedby");
   });
 });

@@ -3,8 +3,12 @@
  *
  * These tests exercise full request→response flows across all three routes,
  * verifying correct data shapes, HTTP semantics, and cross-route data
- * consistency. Supabase, ForemClient, and scoring are mocked at module
- * boundaries; routing and serialization logic run for real.
+ * consistency. Supabase and sync are mocked at module boundaries; routing
+ * and serialization logic run for real.
+ *
+ * The sync pipeline itself (article processing, scoring, Supabase upserts) is
+ * fully tested in src/lib/sync.test.ts. These integration tests focus on
+ * HTTP routing, auth enforcement, and response serialization.
  */
 
 import { NextRequest } from "next/server";
@@ -12,24 +16,16 @@ import { GET as getPosts } from "../posts/route";
 // Note: getPosts() accepts no Request parameter — see posts/route.ts signature
 import { GET as getPostById } from "../posts/[id]/route";
 import { POST as postCron } from "../cron/route";
-import { ForemClient } from "@/lib/forem";
+import { syncArticles } from "@/lib/sync";
 import { supabase } from "@/lib/supabase";
 import { vi, type Mock } from "vitest";
 
-vi.mock("@/lib/forem", () => ({
-  ForemClient: {
-    getLatestArticles: vi.fn(),
-    getUserByUsername: vi.fn(),
-    getComments: vi.fn(),
-    getArticle: vi.fn().mockResolvedValue({
-      id: 1,
-      body_html: "Mock body html ".repeat(100),
-      reading_time_minutes: 2,
-    }),
-  },
+// Mock the heavy sync module at the boundary — the real pipeline is covered
+// by src/lib/sync.test.ts. Loading sync.ts in a fork child exceeds the
+// available V8 heap on macOS CI (it transitively loads all scoring logic).
+vi.mock("@/lib/sync", () => ({
+  syncArticles: vi.fn(),
 }));
-
-// No evaluatePriority mock needed anymore since it's inline
 
 vi.mock("@/lib/supabase", () => ({
   supabase: {
@@ -79,6 +75,30 @@ const DB_ARTICLE_DETAIL = {
   explanations: ["Risk Score: 8"],
   published_at: "2024-01-15T10:00:00Z",
   canonical_url: "https://external.example.com/post",
+  metrics: {
+    velocity_buckets: [{ hour: 0, count: 3 }],
+    comments_per_hour: 1.5,
+    commenter_shares: [{ username: "user1", share: 0.6 }],
+    positive_pct: 20,
+    neutral_pct: 60,
+    negative_pct: 20,
+    constructiveness_buckets: [{ hour: 0, depth_index: 1.0 }],
+    avg_comment_length: 25,
+    reply_ratio: 0.4,
+    alternating_pairs: 0,
+    risk_components: {
+      frequency_penalty: 0,
+      short_content: true,
+      no_engagement: false,
+      promo_keywords: 2,
+      repeated_links: 0,
+      engagement_credit: 0,
+    },
+    risk_score: 8,
+    sentiment_flips: 1,
+    is_first_post: false,
+    help_keywords: 0,
+  },
 };
 
 const DB_RECENT_POSTS = [
@@ -130,14 +150,6 @@ function buildSupabaseDetailChains(
     };
     return chain;
   });
-}
-
-function buildSupabaseUpsertChain() {
-  const chain = {
-    upsert: vi.fn().mockResolvedValue({ data: null, error: null }),
-  };
-  (supabase.from as Mock).mockReturnValue(chain);
-  return chain;
 }
 
 // ---------------------------------------------------------------------------
@@ -253,6 +265,24 @@ describe("Integration: GET /api/posts/[id]", () => {
     }
   });
 
+  it("returns metrics JSONB field in detail response", async () => {
+    buildSupabaseDetailChains(DB_ARTICLE_DETAIL, []);
+
+    const req = new NextRequest("http://localhost:3000/api/posts/1");
+    const res = await getPostById(req, {
+      params: Promise.resolve({ id: "1" }),
+    });
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.metrics).toBeDefined();
+    expect(json.metrics.velocity_buckets).toHaveLength(1);
+    expect(json.metrics.risk_score).toBe(8);
+    expect(json.metrics.commenter_shares[0].username).toBe("user1");
+    expect(json.metrics.risk_components.short_content).toBe(true);
+    expect(json.metrics.risk_components.promo_keywords).toBe(2);
+  });
+
   it("recent_posts defaults to [] when Supabase returns null", async () => {
     buildSupabaseDetailChains(DB_ARTICLE_DETAIL, null);
 
@@ -308,8 +338,6 @@ describe("Integration: GET /api/posts/[id]", () => {
 // POST /api/cron integration
 // ---------------------------------------------------------------------------
 
-// Default scoring block removed
-
 function makeCronRequest(token?: string) {
   return new Request("http://localhost:3000/api/cron", {
     method: "POST",
@@ -334,30 +362,12 @@ describe("Integration: POST /api/cron", () => {
     }
   });
 
-  it("syncs articles and returns success with count", async () => {
-    const foremArticles = [
-      {
-        id: 100,
-        title: "New Article",
-        published_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-        public_reactions_count: 2,
-        comments_count: 0,
-        reading_time_minutes: 2,
-        tag_list: ["typescript"],
-        canonical_url: "https://dev.to/new-article",
-        url: "https://dev.to/newuser/new-article-100",
-        user: { username: "newuser" },
-      },
-    ];
-
-    (ForemClient.getLatestArticles as Mock).mockResolvedValue(foremArticles);
-    (ForemClient.getUserByUsername as Mock).mockResolvedValue({
-      username: "newuser",
-      joined_at: "2023-12-01T00:00:00Z",
+  it("returns success with synced count from syncArticles result", async () => {
+    (syncArticles as Mock).mockResolvedValue({
+      synced: 2,
+      failed: 0,
+      errors: [],
     });
-    (ForemClient.getComments as Mock).mockResolvedValue([]);
-
-    const upsertChain = buildSupabaseUpsertChain();
 
     const res = await postCron(makeCronRequest(CRON_SECRET));
     const json = await res.json();
@@ -365,31 +375,25 @@ describe("Integration: POST /api/cron", () => {
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
     expect(json.synced).toBe(2);
-
-    // Verify Supabase was called for users and articles
-    const fromCalls = (supabase.from as Mock).mock.calls.map((c) => c[0]);
-    expect(fromCalls).toContain("users");
-    expect(fromCalls).toContain("articles");
-
-    // Verify evaluatePriority result flows into article upsert
-    const articleUpsert = upsertChain.upsert.mock.calls.find(
-      (call: unknown[]) => (call[0] as Record<string, unknown>).id === 100,
-    );
-    expect(articleUpsert).toBeDefined();
+    expect(syncArticles).toHaveBeenCalledOnce();
   });
 
-  it("rejects unauthorized requests without calling Forem API", async () => {
+  it("rejects unauthorized requests without calling syncArticles", async () => {
     const res = await postCron(makeCronRequest("bad-token"));
 
     expect(res.status).toBe(401);
-    expect(ForemClient.getLatestArticles).not.toHaveBeenCalled();
-    expect(supabase.from).not.toHaveBeenCalled();
+    expect(syncArticles).not.toHaveBeenCalled();
   });
 
-  it("handles Forem API failures gracefully with 500", async () => {
-    (ForemClient.getLatestArticles as Mock).mockRejectedValue(
-      new Error("Forem rate limited"),
-    );
+  it("returns 401 when no token provided", async () => {
+    const res = await postCron(makeCronRequest());
+
+    expect(res.status).toBe(401);
+    expect(syncArticles).not.toHaveBeenCalled();
+  });
+
+  it("propagates syncArticles errors as 500 with error message", async () => {
+    (syncArticles as Mock).mockRejectedValue(new Error("Forem rate limited"));
 
     const res = await postCron(makeCronRequest(CRON_SECRET));
     const json = await res.json();
@@ -398,89 +402,18 @@ describe("Integration: POST /api/cron", () => {
     expect(json.error).toBe("Forem rate limited");
   });
 
-  it("runs the full sync logic when articles successfully returned from Forem", async () => {
-    const article = {
-      id: 200,
-      title: "Scored Article",
-      published_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-      public_reactions_count: 50,
-      reading_time_minutes: 3,
-      comments_count: 5,
-      tag_list: [],
-      canonical_url: "https://dev.to/scored",
-      url: "https://dev.to/scorer/scored-200",
-      user: { username: "scorer" },
-    };
-
-    (ForemClient.getLatestArticles as Mock).mockResolvedValue([article]);
-    (ForemClient.getUserByUsername as Mock).mockResolvedValue({
-      username: "scorer",
-      joined_at: "2022-01-01",
+  it("returns synced: 0 when syncArticles reports no articles processed", async () => {
+    (syncArticles as Mock).mockResolvedValue({
+      synced: 0,
+      failed: 0,
+      errors: [],
     });
-    (ForemClient.getComments as Mock).mockResolvedValue([
-      { body_html: "Great article!", user: { username: "userA" } },
-    ]);
-    const upsertChain = buildSupabaseUpsertChain();
-
-    await postCron(makeCronRequest(CRON_SECRET));
-
-    // Verify it saved the correct DB fields computed via pipeline step 4
-    const articleUpsert = upsertChain.upsert.mock.calls.find(
-      (call: unknown[]) => (call[0] as Record<string, unknown>).id === 200,
-    )?.[0] as Record<string, unknown>;
-
-    expect(articleUpsert).toBeDefined();
-    // Verify it at least classified it with some attention_level string
-    expect(articleUpsert.attention_level).toBeDefined();
-    expect(articleUpsert.score).toBeDefined();
-  });
-
-  it("assigns appropriate score mapped attention levels safely", async () => {
-    const article = {
-      id: 300,
-      title: "High Priority",
-      published_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-      public_reactions_count: 50,
-      reading_time_minutes: 5,
-      comments_count: 10,
-      tag_list: ["spam"],
-      canonical_url: "https://evil.example.com",
-      url: "https://dev.to/badactor/spam-300",
-      user: { username: "badactor" },
-    };
-
-    (ForemClient.getLatestArticles as Mock).mockResolvedValue([article]);
-    (ForemClient.getUserByUsername as Mock).mockResolvedValue({
-      username: "badactor",
-      joined_at: "2023-01-01",
-    });
-    (ForemClient.getComments as Mock).mockResolvedValue([
-      { body_html: "Need help stuck here", user: { username: "student1" } },
-      { body_html: "link in bio subscribe", user: { username: "spammer2" } },
-    ]);
-
-    const upsertChain = buildSupabaseUpsertChain();
-
-    await postCron(makeCronRequest(CRON_SECRET));
-
-    const articleUpsert = upsertChain.upsert.mock.calls.find(
-      (call: unknown[]) => (call[0] as Record<string, unknown>).id === 300,
-    )?.[0] as Record<string, unknown>;
-
-    expect(articleUpsert).toBeDefined();
-    expect(typeof articleUpsert.score).toBe("number");
-    expect(articleUpsert.attention_level).toBeDefined();
-  });
-
-  it("syncs zero articles when Forem returns empty list", async () => {
-    (ForemClient.getLatestArticles as Mock).mockResolvedValue([]);
 
     const res = await postCron(makeCronRequest(CRON_SECRET));
     const json = await res.json();
 
     expect(res.status).toBe(200);
     expect(json.synced).toBe(0);
-    expect(supabase.from).not.toHaveBeenCalled();
   });
 });
 

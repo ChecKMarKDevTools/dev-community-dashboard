@@ -1,5 +1,5 @@
 #!/bin/bash
-# deploy.sh — Build and deploy forem-community-dashboard to Cloud Run.
+# deploy.sh — Build and deploy dev-community-dashboard to Cloud Run.
 #
 # Usage:
 #   ./deploy.sh                  # deploy with ENVIRONMENT=production (default)
@@ -18,7 +18,7 @@ PORT="3000"
 # Override via: ENVIRONMENT=staging ./deploy.sh
 ENVIRONMENT="${ENVIRONMENT:-production}"
 # Service name is scoped per environment so staging never overwrites production.
-BASE_SERVICE_NAME="forem-community-dashboard"
+BASE_SERVICE_NAME="dev-community-dashboard"
 if [[ "$ENVIRONMENT" != "production" ]]; then
   SERVICE_NAME="${BASE_SERVICE_NAME}-${ENVIRONMENT}"
 else

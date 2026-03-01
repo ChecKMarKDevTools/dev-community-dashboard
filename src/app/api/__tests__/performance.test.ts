@@ -114,7 +114,36 @@ function buildSupabaseDetailMock(id: number) {
         select: vi.fn(() => chain),
         eq: vi.fn(() => chain),
         single: vi.fn().mockResolvedValue({
-          data: { id, title: `Post ${id}`, author: "testuser", score: 50 },
+          data: {
+            id,
+            title: `Post ${id}`,
+            author: "testuser",
+            score: 50,
+            metrics: {
+              velocity_buckets: [{ hour: 0, count: 2 }],
+              comments_per_hour: 1,
+              commenter_shares: [{ username: "user1", share: 0.5 }],
+              positive_pct: 30,
+              neutral_pct: 50,
+              negative_pct: 20,
+              constructiveness_buckets: [{ hour: 0, depth_index: 0.5 }],
+              avg_comment_length: 20,
+              reply_ratio: 0.3,
+              alternating_pairs: 0,
+              risk_components: {
+                frequency_penalty: 0,
+                short_content: false,
+                no_engagement: false,
+                promo_keywords: 0,
+                repeated_links: 0,
+                engagement_credit: 0,
+              },
+              risk_score: 0,
+              sentiment_flips: 0,
+              is_first_post: false,
+              help_keywords: 0,
+            },
+          },
           error: null,
         }),
       };
@@ -138,8 +167,19 @@ function buildCronMocks(articleCount: number) {
   (ForemClient.getLatestArticles as Mock).mockResolvedValue(articles);
   (ForemClient.getUserByUsername as Mock).mockResolvedValue(null);
   (ForemClient.getComments as Mock).mockResolvedValue([]);
+  const selectChain = {
+    eq: vi.fn().mockReturnThis(),
+    gte: vi.fn().mockResolvedValue({ data: [], error: null }),
+  };
+  const deleteChain = {
+    lt: vi.fn().mockReturnValue({
+      select: vi.fn().mockResolvedValue({ data: [], error: null }),
+    }),
+  };
   (supabase.from as Mock).mockReturnValue({
     upsert: vi.fn().mockResolvedValue({ data: null, error: null }),
+    select: vi.fn().mockReturnValue(selectChain),
+    delete: vi.fn().mockReturnValue(deleteChain),
   });
   return articles;
 }

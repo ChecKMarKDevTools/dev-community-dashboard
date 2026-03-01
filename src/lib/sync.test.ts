@@ -1,5 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { syncArticles } from "./sync";
+import {
+  syncArticles,
+  buildVelocityBuckets,
+  buildConstructivenessBuckets,
+  buildCommenterShares,
+  buildSentimentSpread,
+  buildArticleMetrics,
+} from "./sync";
 import { ForemUser, ForemComment, ForemClient } from "./forem";
 import { supabase } from "./supabase";
 
@@ -92,11 +99,23 @@ function makeComment(overrides: Partial<ForemComment> = {}): ForemComment {
   };
 }
 
-/** Resets the supabase.from mock to return a fresh upsert chain. */
+/** Resets the supabase.from mock to return a fresh upsert/select/delete chain.
+ *  - select → eq → gte resolves to empty data (backfill is a no-op)
+ *  - delete → lt → select resolves to empty data (purge is a no-op) */
 function resetSupabaseMock() {
+  const selectChain = {
+    eq: vi.fn().mockReturnThis(),
+    gte: vi.fn().mockResolvedValue({ data: [], error: null }),
+  };
+  const deleteChain = {
+    lt: vi.fn().mockReturnValue({
+      select: vi.fn().mockResolvedValue({ data: [], error: null }),
+    }),
+  };
   vi.mocked(supabase.from).mockReturnValue({
     upsert: vi.fn().mockResolvedValue({ error: null }),
-    select: vi.fn().mockReturnThis(),
+    select: vi.fn().mockReturnValue(selectChain),
+    delete: vi.fn().mockReturnValue(deleteChain),
   } as never);
 }
 
@@ -503,8 +522,8 @@ describe("syncArticles scoring pipeline", () => {
 
   // ── Edge cases ─────────────────────────────────────────────────────────
 
-  it("returns zero synced when article is older than the 168-hour sync window", async () => {
-    // 200 hours = > 7 days, outside SYNC_WINDOW_HOURS
+  it("returns zero synced when article is older than the 120-hour sync window", async () => {
+    // 200 hours = > 5 days, outside SYNC_WINDOW_HOURS
     const article = makeArticle({
       id: 70,
       published_at: new Date(NOW - 200 * 60 * 60 * 1000).toISOString(),
@@ -518,11 +537,11 @@ describe("syncArticles scoring pipeline", () => {
     expect(result.failed).toBe(0);
   });
 
-  it("syncs articles at exactly the 168-hour boundary (inclusive lower edge)", async () => {
-    // 167 hours — just inside the window
+  it("syncs articles at exactly the 120-hour boundary (inclusive lower edge)", async () => {
+    // 119 hours — just inside the window
     const article = makeArticle({
       id: 72,
-      published_at: new Date(NOW - 167 * 60 * 60 * 1000).toISOString(),
+      published_at: new Date(NOW - 119 * 60 * 60 * 1000).toISOString(),
     });
 
     setupBasicMocks([article]);
@@ -710,6 +729,94 @@ describe("syncArticles scoring pipeline", () => {
     const result = await syncArticles(1);
 
     expect(result.synced).toBe(1);
+    expect(result.failed).toBe(0);
+  });
+
+  // ── Fresh counts from individual article fetch ──────────────────────
+
+  it("uses fresh counts from getArticle instead of stale list API counts", async () => {
+    // List API returns stale counts (2 reactions, 0 comments)
+    const article = makeArticle({
+      id: 95,
+      public_reactions_count: 2,
+      comments_count: 0,
+    });
+
+    // Individual article fetch returns updated counts (15 reactions, 5 comments)
+    vi.mocked(ForemClient.getLatestArticles).mockImplementation(
+      async (page) => {
+        if (page === 1) return [article] as never;
+        return [];
+      },
+    );
+    vi.mocked(ForemClient.getArticle).mockResolvedValue(
+      makeArticle({
+        id: 95,
+        public_reactions_count: 15,
+        comments_count: 5,
+        body_markdown: "word ".repeat(100),
+      }) as never,
+    );
+    vi.mocked(ForemClient.getUserByUsername).mockResolvedValue(mockUser);
+    vi.mocked(ForemClient.getComments).mockResolvedValue([]);
+
+    // Track upserted article data to verify fresh counts are used
+    const upsertedArticles: Array<{ reactions: number; comments: number }> = [];
+    const selectChain = {
+      eq: vi.fn().mockReturnThis(),
+      gte: vi.fn().mockResolvedValue({ data: [], error: null }),
+    };
+    const deleteChain = {
+      lt: vi.fn().mockReturnValue({
+        select: vi.fn().mockResolvedValue({ data: [], error: null }),
+      }),
+    };
+    vi.mocked(supabase.from).mockReturnValue({
+      upsert: vi.fn().mockImplementation((data: Record<string, unknown>) => {
+        if ("reactions" in data) {
+          upsertedArticles.push(
+            data as { reactions: number; comments: number },
+          );
+        }
+        return { error: null };
+      }),
+      select: vi.fn().mockReturnValue(selectChain),
+      delete: vi.fn().mockReturnValue(deleteChain),
+    } as never);
+
+    const result = await syncArticles(1);
+
+    expect(result.synced).toBe(1);
+    // Verify fresh counts from getArticle were used, not stale list API counts
+    expect(upsertedArticles).toHaveLength(1);
+    expect(upsertedArticles[0].reactions).toBe(15);
+    expect(upsertedArticles[0].comments).toBe(5);
+  });
+
+  it("falls back to list API counts when getArticle fails", async () => {
+    const article = makeArticle({
+      id: 96,
+      public_reactions_count: 3,
+      comments_count: 1,
+    });
+
+    vi.mocked(ForemClient.getLatestArticles).mockImplementation(
+      async (page) => {
+        if (page === 1) return [article] as never;
+        return [];
+      },
+    );
+    vi.mocked(ForemClient.getArticle).mockRejectedValue(
+      new Error("Article fetch failed"),
+    );
+    vi.mocked(ForemClient.getUserByUsername).mockResolvedValue(mockUser);
+    vi.mocked(ForemClient.getComments).mockResolvedValue([]);
+    resetSupabaseMock();
+
+    const result = await syncArticles(1);
+
+    expect(result.synced).toBe(1);
+    // Should still succeed using fallback counts from list API
     expect(result.failed).toBe(0);
   });
 
@@ -1068,5 +1175,493 @@ describe("syncArticles scoring pipeline", () => {
 
     // getUserByUsername should only be called once for the same author
     expect(ForemClient.getUserByUsername).toHaveBeenCalledTimes(1);
+  });
+
+  // ── Null username handling (deleted Forem accounts) ──────────────────
+
+  it("skips commenter tracking for comments with null usernames", async () => {
+    const article = makeArticle({
+      id: 700,
+      public_reactions_count: 5,
+      comments_count: 2,
+      reading_time_minutes: 3,
+    });
+
+    const comments: ForemComment[] = [
+      // Normal commenter
+      makeComment({
+        id_code: "c700_1",
+        body_html: "<p>great post</p>",
+        user: {
+          name: "Normal User",
+          username: "normaluser",
+          twitter_username: null,
+          github_username: null,
+          website_url: null,
+          profile_image: "",
+          profile_image_90: "",
+        },
+      }),
+      // Deleted account with null username
+      makeComment({
+        id_code: "c700_2",
+        body_html: "<p>deleted user comment</p>",
+        user: {
+          name: null,
+          username: null,
+          twitter_username: null,
+          github_username: null,
+          website_url: null,
+          profile_image: "",
+          profile_image_90: "",
+        },
+      }),
+    ];
+
+    setupBasicMocks([article], comments);
+
+    const result = await syncArticles(1);
+
+    expect(result.synced).toBe(1);
+    expect(result.failed).toBe(0);
+  });
+
+  it("handles nested replies from deleted accounts without crashing", async () => {
+    const article = makeArticle({
+      id: 710,
+      public_reactions_count: 2,
+      comments_count: 3,
+      reading_time_minutes: 3,
+    });
+
+    const comments: ForemComment[] = [
+      {
+        type_of: "comment",
+        id_code: "c710_root",
+        created_at: new Date().toISOString(),
+        body_html: "<p>root comment</p>",
+        user: {
+          name: "Alice",
+          username: "alice",
+          twitter_username: null,
+          github_username: null,
+          website_url: null,
+          profile_image: "",
+          profile_image_90: "",
+        },
+        children: [
+          {
+            type_of: "comment",
+            id_code: "c710_deleted_reply",
+            created_at: new Date().toISOString(),
+            body_html: "<p>reply from deleted account</p>",
+            user: {
+              name: null,
+              username: null,
+              twitter_username: null,
+              github_username: null,
+              website_url: null,
+              profile_image: "",
+              profile_image_90: "",
+            },
+            children: [
+              {
+                type_of: "comment",
+                id_code: "c710_grandchild",
+                created_at: new Date().toISOString(),
+                body_html: "<p>reply to deleted user</p>",
+                user: {
+                  name: "Bob",
+                  username: "bob",
+                  twitter_username: null,
+                  github_username: null,
+                  website_url: null,
+                  profile_image: "",
+                  profile_image_90: "",
+                },
+                children: [],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    setupBasicMocks([article], comments);
+
+    const result = await syncArticles(1);
+
+    expect(result.synced).toBe(1);
+    expect(result.failed).toBe(0);
+  });
+
+  it("includes metrics JSONB in the article upsert payload", async () => {
+    const article = makeArticle({
+      id: 600,
+      public_reactions_count: 5,
+      comments_count: 2,
+      reading_time_minutes: 3,
+    });
+
+    const comments = [
+      makeComment({
+        id_code: "c600_1",
+        body_html: "<p>awesome helpful post</p>",
+        created_at: new Date(NOW - 2 * 60 * 60 * 1000).toISOString(),
+        user: {
+          name: "User A",
+          username: "usera",
+          twitter_username: null,
+          github_username: null,
+          website_url: null,
+          profile_image: "",
+          profile_image_90: "",
+        },
+      }),
+      makeComment({
+        id_code: "c600_2",
+        body_html: "<p>terrible broken thing</p>",
+        created_at: new Date(NOW - 1 * 60 * 60 * 1000).toISOString(),
+        user: {
+          name: "User B",
+          username: "userb",
+          twitter_username: null,
+          github_username: null,
+          website_url: null,
+          profile_image: "",
+          profile_image_90: "",
+        },
+      }),
+    ];
+
+    setupBasicMocks([article], comments);
+
+    const result = await syncArticles(1);
+
+    expect(result.synced).toBe(1);
+
+    // Verify that the upsert was called with a metrics field
+    const upsertMock = vi.mocked(supabase.from).mock.results;
+    const articleUpsertCall = upsertMock.find(
+      (r) =>
+        r.type === "return" &&
+        (r.value as { upsert: ReturnType<typeof vi.fn> }).upsert,
+    );
+    expect(articleUpsertCall).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Purge stale articles
+// ---------------------------------------------------------------------------
+
+describe("syncArticles — purge step", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("includes purge count in errors array when stale articles are deleted (production path)", async () => {
+    const article = makeArticle({ id: 900 });
+
+    vi.mocked(ForemClient.getLatestArticles).mockImplementation(
+      async (page) => {
+        if (page === 1) return [article] as never;
+        return [];
+      },
+    );
+    vi.mocked(ForemClient.getArticle).mockImplementation(
+      async (id: number) => makeArticle({ id }) as never,
+    );
+    vi.mocked(ForemClient.getUserByUsername).mockResolvedValue(mockUser);
+    vi.mocked(ForemClient.getComments).mockResolvedValue([]);
+
+    // Mock select chain (backfill returns empty) and delete chain (purge returns 2 rows)
+    const selectChain = {
+      eq: vi.fn().mockReturnThis(),
+      gte: vi.fn().mockResolvedValue({ data: [], error: null }),
+    };
+    const deleteChain = {
+      lt: vi.fn().mockReturnValue({
+        select: vi.fn().mockResolvedValue({
+          data: [{ id: 101 }, { id: 102 }],
+          error: null,
+        }),
+      }),
+    };
+    vi.mocked(supabase.from).mockReturnValue({
+      upsert: vi.fn().mockResolvedValue({ error: null }),
+      select: vi.fn().mockReturnValue(selectChain),
+      delete: vi.fn().mockReturnValue(deleteChain),
+    } as never);
+
+    // No maxToProcess → production path (includes purge)
+    const result = await syncArticles();
+
+    expect(result.synced).toBe(1);
+    expect(result.errors).toContainEqual(
+      expect.stringContaining("Purged 2 stale articles"),
+    );
+  });
+
+  it("skips purge when maxToProcess is set (test path)", async () => {
+    const article = makeArticle({ id: 910 });
+
+    setupBasicMocks([article]);
+
+    const result = await syncArticles(1);
+
+    // With maxToProcess set, purge is skipped — no purge message in errors
+    expect(result.errors).not.toContainEqual(expect.stringContaining("Purged"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Metric builder function tests
+// ---------------------------------------------------------------------------
+
+describe("buildVelocityBuckets", () => {
+  const publishedAt = "2024-01-01T10:00:00Z";
+
+  it("buckets comments into hourly bins relative to publication", () => {
+    const pubTime = new Date(publishedAt).getTime();
+    const timestamps = [
+      new Date(pubTime + 30 * 60 * 1000), // 0.5h → bucket 0
+      new Date(pubTime + 90 * 60 * 1000), // 1.5h → bucket 1
+      new Date(pubTime + 100 * 60 * 1000), // ~1.67h → bucket 1
+    ];
+
+    const result = buildVelocityBuckets(timestamps, publishedAt);
+
+    expect(result).toEqual([
+      { hour: 0, count: 1 },
+      { hour: 1, count: 2 },
+    ]);
+  });
+
+  it("returns empty array for no timestamps", () => {
+    expect(buildVelocityBuckets([], publishedAt)).toEqual([]);
+  });
+
+  it("caps at 48 buckets", () => {
+    const pubTime = new Date(publishedAt).getTime();
+    const timestamps = Array.from(
+      { length: 60 },
+      (_, i) => new Date(pubTime + i * 60 * 60 * 1000),
+    );
+
+    const result = buildVelocityBuckets(timestamps, publishedAt);
+
+    expect(result.length).toBeLessThanOrEqual(48);
+  });
+
+  it("handles comments before publication (negative offset clamped to 0)", () => {
+    const pubTime = new Date(publishedAt).getTime();
+    const timestamps = [new Date(pubTime - 60 * 60 * 1000)];
+
+    const result = buildVelocityBuckets(timestamps, publishedAt);
+
+    expect(result).toEqual([{ hour: 0, count: 1 }]);
+  });
+});
+
+describe("buildConstructivenessBuckets", () => {
+  const publishedAt = "2024-01-01T10:00:00Z";
+
+  it("averages depth per hourly bucket", () => {
+    const pubTime = new Date(publishedAt).getTime();
+    const commentDepths = [
+      { timestamp: new Date(pubTime + 30 * 60 * 1000), depth: 0 },
+      { timestamp: new Date(pubTime + 40 * 60 * 1000), depth: 2 },
+      { timestamp: new Date(pubTime + 90 * 60 * 1000), depth: 3 },
+    ];
+
+    const result = buildConstructivenessBuckets(commentDepths, publishedAt);
+
+    expect(result).toEqual([
+      { hour: 0, depth_index: 1 }, // avg(0, 2) = 1
+      { hour: 1, depth_index: 3 }, // avg(3) = 3
+    ]);
+  });
+
+  it("returns empty array for no data", () => {
+    expect(buildConstructivenessBuckets([], publishedAt)).toEqual([]);
+  });
+});
+
+describe("buildCommenterShares", () => {
+  it("returns top-5 commenters sorted by share descending", () => {
+    const counts = new Map([
+      ["alice", 5],
+      ["bob", 3],
+      ["carol", 2],
+      ["dave", 1],
+      ["eve", 4],
+      ["frank", 1],
+    ]);
+
+    const result = buildCommenterShares(counts, 16);
+
+    expect(result).toHaveLength(5);
+    expect(result[0].username).toBe("alice");
+    expect(result[0].share).toBeCloseTo(5 / 16);
+    expect(result[1].username).toBe("eve");
+  });
+
+  it("returns empty array when totalComments is 0", () => {
+    const counts = new Map([["alice", 1]]);
+    expect(buildCommenterShares(counts, 0)).toEqual([]);
+  });
+
+  it("returns all commenters when fewer than 5", () => {
+    const counts = new Map([
+      ["alice", 3],
+      ["bob", 2],
+    ]);
+    const result = buildCommenterShares(counts, 5);
+    expect(result).toHaveLength(2);
+  });
+});
+
+describe("buildSentimentSpread", () => {
+  it("computes correct percentages", () => {
+    const result = buildSentimentSpread(3, 2, 10);
+    expect(result.positive_pct).toBe(30);
+    expect(result.negative_pct).toBe(20);
+    expect(result.neutral_pct).toBe(50);
+  });
+
+  it("returns 100% neutral for zero comments", () => {
+    const result = buildSentimentSpread(0, 0, 0);
+    expect(result).toEqual({
+      positive_pct: 0,
+      neutral_pct: 100,
+      negative_pct: 0,
+    });
+  });
+
+  it("handles all-positive comments", () => {
+    const result = buildSentimentSpread(5, 0, 5);
+    expect(result.positive_pct).toBe(100);
+    expect(result.negative_pct).toBe(0);
+    expect(result.neutral_pct).toBe(0);
+  });
+
+  it("scales pos/neg proportionally when double-counted comments push sum over 100%", () => {
+    // 8 pos + 5 neg from 10 total → rawPos=80, rawNeg=50, rawTotal=130
+    // Both are scaled by 100/130 so the three segments always sum to exactly 100
+    // and DivergingBar widths match the displayed labels.
+    const result = buildSentimentSpread(8, 5, 10);
+    expect(result.neutral_pct).toBe(0);
+    const sum = result.positive_pct + result.neutral_pct + result.negative_pct;
+    expect(sum).toBeCloseTo(100, 5);
+    // Original pos/neg ratio must be preserved after scaling
+    expect(result.positive_pct / result.negative_pct).toBeCloseTo(8 / 5, 5);
+  });
+});
+
+describe("buildArticleMetrics", () => {
+  it("assembles a complete ArticleMetrics object", () => {
+    const pubAt = "2024-01-01T10:00:00Z";
+    const pubTime = new Date(pubAt).getTime();
+
+    const metrics = {
+      uniqueCommenters: new Set(["alice", "bob"]),
+      totalCommentWords: 50,
+      pos_comments: 2,
+      neg_comments: 1,
+      alternating_pairs: 1,
+      replies_with_parent: 3,
+      promo_keywords: 0,
+      help_keywords: 1,
+      externalDomainCounts: new Map<string, number>(),
+      comment_timestamps: [
+        new Date(pubTime + 60 * 60 * 1000),
+        new Date(pubTime + 2 * 60 * 60 * 1000),
+        new Date(pubTime + 2 * 60 * 60 * 1000),
+      ],
+      commenter_comment_counts: new Map([
+        ["alice", 2],
+        ["bob", 1],
+      ]),
+      comment_depths: [
+        { timestamp: new Date(pubTime + 60 * 60 * 1000), depth: 0 },
+        { timestamp: new Date(pubTime + 2 * 60 * 60 * 1000), depth: 1 },
+        { timestamp: new Date(pubTime + 2 * 60 * 60 * 1000), depth: 2 },
+      ],
+    };
+
+    const result = buildArticleMetrics({
+      metrics,
+      publishedAt: pubAt,
+      commentCount: 3,
+      ageHours: 5,
+      riskScore: 2,
+      frequencyPenalty: 0,
+      engagementCredit: 1,
+      wordCount: 500,
+      reactionCount: 10,
+      repeatedLinks: 0,
+      isFirstPost: false,
+    });
+
+    expect(result.velocity_buckets).toHaveLength(2);
+    expect(result.comments_per_hour).toBeCloseTo(3 / 5);
+    expect(result.commenter_shares).toHaveLength(2);
+    expect(result.commenter_shares[0].username).toBe("alice");
+    expect(result.positive_pct).toBeCloseTo((2 / 3) * 100);
+    expect(result.negative_pct).toBeCloseTo((1 / 3) * 100);
+    expect(result.constructiveness_buckets).toHaveLength(2);
+    expect(result.avg_comment_length).toBeCloseTo(50 / 3);
+    expect(result.reply_ratio).toBeCloseTo(3 / 3);
+    expect(result.alternating_pairs).toBe(1);
+    expect(result.risk_score).toBe(2);
+    expect(result.risk_components.frequency_penalty).toBe(0);
+    expect(result.risk_components.short_content).toBe(false);
+    expect(result.risk_components.no_engagement).toBe(false);
+    expect(result.risk_components.engagement_credit).toBe(1);
+    expect(result.sentiment_flips).toBe(1);
+    expect(result.is_first_post).toBe(false);
+    expect(result.help_keywords).toBe(1);
+  });
+
+  it("handles zero comments gracefully", () => {
+    const metrics = {
+      uniqueCommenters: new Set<string>(),
+      totalCommentWords: 0,
+      pos_comments: 0,
+      neg_comments: 0,
+      alternating_pairs: 0,
+      replies_with_parent: 0,
+      promo_keywords: 0,
+      help_keywords: 0,
+      externalDomainCounts: new Map<string, number>(),
+      comment_timestamps: [],
+      commenter_comment_counts: new Map<string, number>(),
+      comment_depths: [],
+    };
+
+    const result = buildArticleMetrics({
+      metrics,
+      publishedAt: "2024-01-01T10:00:00Z",
+      commentCount: 0,
+      ageHours: 3,
+      riskScore: 4,
+      frequencyPenalty: 2,
+      engagementCredit: 0,
+      wordCount: 50,
+      reactionCount: 0,
+      repeatedLinks: 0,
+      isFirstPost: true,
+    });
+
+    expect(result.velocity_buckets).toEqual([]);
+    expect(result.comments_per_hour).toBe(0);
+    expect(result.commenter_shares).toEqual([]);
+    expect(result.neutral_pct).toBe(100);
+    expect(result.avg_comment_length).toBe(0);
+    expect(result.reply_ratio).toBe(0);
+    expect(result.risk_components.short_content).toBe(true);
+    expect(result.risk_components.no_engagement).toBe(true);
+    expect(result.is_first_post).toBe(true);
   });
 });

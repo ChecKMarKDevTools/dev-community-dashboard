@@ -41,9 +41,25 @@ import {
   computeAgeHours,
   sortByAttentionPriority,
   SIGNAL_TOOLTIPS,
-  SCORE_BREAKDOWN_SIGNALS,
+  DISCUSSION_STATE_SIGNALS,
 } from "@/lib/dashboard-helpers";
 import type { Post, PostDetails, RecentPost } from "@/types/dashboard";
+import {
+  ChartContainer,
+  LineChart,
+  HorizontalBarChart,
+  DivergingBar,
+  MarkerTimeline,
+} from "@/components/ui/charts";
+import {
+  getVelocityChartData,
+  getVelocityBaseline,
+  getParticipationData,
+  getSentimentData,
+  getConstructivenessData,
+  getRiskMarkers,
+} from "@/lib/metrics-helpers";
+import { POSITIVE_WORDS, NEGATIVE_WORDS } from "@/lib/sentiment-keywords";
 
 type DetailPanelProps = Readonly<{
   selectedPostId: number | null;
@@ -155,7 +171,8 @@ function DetailPanel({
                 <ul className="space-y-3">
                   {postDetails.explanations
                     .filter(
-                      (exp) => !SCORE_BREAKDOWN_SIGNALS.has(getSignalName(exp)),
+                      (exp) =>
+                        !DISCUSSION_STATE_SIGNALS.has(getSignalName(exp)),
                     )
                     .map((exp: string) => (
                       <SignalItem
@@ -189,15 +206,16 @@ function DetailPanel({
               {Object.entries(
                 parseScoreBreakdown(postDetails.explanations),
               ).map(([category, value]) => (
-                <ScoreBar
-                  key={category}
-                  label={getCategoryDisplayName(category)}
-                  sublabel={getScoreQualitativeLabel(category, value)}
-                  description={getScoreNarrative(category, value)}
-                  value={value}
-                  max={50}
-                  colorClass={getScoreBarClass(value)}
-                />
+                <div key={category}>
+                  <ScoreBar
+                    label={getCategoryDisplayName(category)}
+                    sublabel={getScoreQualitativeLabel(category, value)}
+                    description={getScoreNarrative(category, value)}
+                    value={value}
+                    max={50}
+                    colorClass={getScoreBarClass(value)}
+                  />
+                </div>
               ))}
             </CardContent>
           </SectionCard>
@@ -216,6 +234,72 @@ function DetailPanel({
             </p>
           </CardContent>
         </SectionCard>
+
+        {/* Post Analytics — always shown for every post */}
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2, delay: 0.1 }}
+          className="mt-6 space-y-6"
+        >
+          <h3 className="font-heading text-text-primary text-xl font-bold">
+            Post Analytics
+          </h3>
+
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Reply Velocity */}
+            <ChartContainer
+              title="Reply Velocity"
+              tooltip="How quickly comments arrive after the post is published. Each bar represents one hour. A dashed baseline shows the average rate."
+            >
+              <LineChart
+                data={getVelocityChartData(postDetails.metrics)}
+                baseline={getVelocityBaseline(postDetails.metrics)}
+                xLabel="Hours since post"
+                yLabel="Comments"
+              />
+            </ChartContainer>
+
+            {/* Participation Distribution */}
+            <ChartContainer
+              title="Participation Distribution"
+              tooltip="Shows the top commenters ranked by their share of total comments. A healthy discussion has multiple participants rather than one dominant voice."
+            >
+              <HorizontalBarChart
+                data={getParticipationData(postDetails.metrics)}
+              />
+            </ChartContainer>
+          </div>
+
+          {/* Sentiment Spread */}
+          <ChartContainer
+            title="Sentiment Spread"
+            tooltip={`Keyword-based tone detection. Positive keywords: ${Array.from(POSITIVE_WORDS).join(", ")}. Negative keywords: ${Array.from(NEGATIVE_WORDS).join(", ")}.`}
+          >
+            <DivergingBar {...getSentimentData(postDetails.metrics)} />
+          </ChartContainer>
+
+          {/* Constructiveness Trend */}
+          <ChartContainer
+            title="Constructiveness Trend"
+            tooltip="Average reply depth over time. Deeper threads indicate more back-and-forth discussion rather than standalone top-level comments."
+          >
+            <LineChart
+              data={getConstructivenessData(postDetails.metrics)}
+              xLabel="Hours since post"
+              yLabel="Reply depth"
+              seriesColor="tertiary"
+            />
+          </ChartContainer>
+
+          {/* Contributing Signals */}
+          <ChartContainer
+            title="Contributing Signals"
+            tooltip="The specific risk factors that were detected for this post. Each marker identifies a signal that contributed to the risk score."
+          >
+            <MarkerTimeline markers={getRiskMarkers(postDetails.metrics)} />
+          </ChartContainer>
+        </motion.div>
       </div>
 
       {/* Author History */}
@@ -347,7 +431,7 @@ export function Dashboard() {
             <div className="flex items-center gap-2">
               <ThemeToggle />
               <a
-                href="https://github.com/ChecKMarKDevTools/forem-community-dashboard/issues"
+                href="https://github.com/ChecKMarKDevTools/dev-community-dashboard/issues"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="border-surface-border text-accent-primary hover:bg-surface-secondary hover:text-accent-hover inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors"

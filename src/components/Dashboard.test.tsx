@@ -94,7 +94,7 @@ describe("Dashboard Component", () => {
     expect(screen.getByText("Needs review post")).toBeInTheDocument();
     expect(screen.getByText("Normal post")).toBeInTheDocument();
     // New analyst-briefing labels
-    expect(screen.getByText("Elevated Signal")).toBeInTheDocument();
+    expect(screen.getByText("Rapid Discussion")).toBeInTheDocument();
     expect(screen.getByText("Steady Signal")).toBeInTheDocument();
   });
 
@@ -273,9 +273,9 @@ describe("Dashboard Component", () => {
       .map((h) => h.textContent);
     expect(titles).toEqual([
       "Needs response",
+      "Low quality",
       "Boost post",
       "Needs review",
-      "Low quality",
       "Normal post",
     ]);
   });
@@ -331,7 +331,7 @@ describe("Dashboard Component", () => {
     const feedbackLink = screen.getByText("Feedback").closest("a");
     expect(feedbackLink).toHaveAttribute(
       "href",
-      "https://github.com/ChecKMarKDevTools/forem-community-dashboard/issues",
+      "https://github.com/ChecKMarKDevTools/dev-community-dashboard/issues",
     );
     expect(feedbackLink).toHaveAttribute("target", "_blank");
     expect(feedbackLink).toHaveAttribute("rel", "noopener noreferrer");
@@ -703,7 +703,7 @@ describe("Dashboard Component", () => {
 
     // The title should come before the badge in DOM order (badge on right)
     const title = screen.getByText("Needs review post");
-    const badge = screen.getByText("Elevated Signal");
+    const badge = screen.getByText("Rapid Discussion");
 
     expect(
       title.compareDocumentPosition(badge) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -735,8 +735,8 @@ describe("Dashboard Component", () => {
     render(<Dashboard />);
 
     await waitFor(() => {
-      // NEEDS_REVIEW triggers "Elevated Signal"
-      expect(screen.getAllByText("Elevated Signal").length).toBeGreaterThan(0);
+      // NEEDS_REVIEW triggers "Rapid Discussion"
+      expect(screen.getAllByText("Rapid Discussion").length).toBeGreaterThan(0);
     });
   });
 
@@ -854,5 +854,185 @@ describe("Dashboard Component", () => {
     expect(
       screen.getByRole("button", { name: "Light mode" }),
     ).toBeInTheDocument();
+  });
+
+  // ── Post Analytics Visualizations ─────────────────────────────────────
+
+  it("renders Post Analytics section when metrics data is present", async () => {
+    const detailWithMetrics = {
+      ...mockPosts[0],
+      dev_url: "https://dev.to/testauthor/post-1",
+      recent_posts: [],
+      metrics: {
+        velocity_buckets: [
+          { hour: 0, count: 3 },
+          { hour: 1, count: 5 },
+        ],
+        comments_per_hour: 2.5,
+        commenter_shares: [
+          { username: "alice", share: 0.5 },
+          { username: "bob", share: 0.3 },
+        ],
+        positive_pct: 40,
+        neutral_pct: 40,
+        negative_pct: 20,
+        constructiveness_buckets: [
+          { hour: 0, depth_index: 0.5 },
+          { hour: 1, depth_index: 1.5 },
+        ],
+        avg_comment_length: 25,
+        reply_ratio: 0.6,
+        alternating_pairs: 1,
+        risk_components: {
+          frequency_penalty: 0,
+          short_content: false,
+          no_engagement: false,
+          promo_keywords: 0,
+          repeated_links: 0,
+          engagement_credit: 1,
+        },
+        risk_score: 0,
+        sentiment_flips: 1,
+        is_first_post: false,
+        help_keywords: 0,
+      },
+    };
+
+    globalThis.fetch = vi.fn().mockImplementation((url) => {
+      if (url === "/api/posts")
+        return Promise.resolve({ ok: true, json: async () => mockPosts });
+      if (url === "/api/posts/1")
+        return Promise.resolve({
+          ok: true,
+          json: async () => detailWithMetrics,
+        });
+      return Promise.reject(new Error("Not found"));
+    });
+
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByText("Needs review post")).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByText("Needs review post").closest("div.border")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Post Analytics")).toBeInTheDocument();
+    });
+
+    // All chart sections should be visible (5 charts — Contributing Signals in Post Analytics)
+    expect(screen.getByText("Reply Velocity")).toBeInTheDocument();
+    expect(screen.getByText("Participation Distribution")).toBeInTheDocument();
+    expect(screen.getByText("Sentiment Spread")).toBeInTheDocument();
+    expect(screen.getByText("Constructiveness Trend")).toBeInTheDocument();
+    expect(screen.getByText("Contributing Signals")).toBeInTheDocument();
+    expect(screen.queryByText("Risk Signal Timeline")).not.toBeInTheDocument();
+  });
+
+  it("shows Post Analytics with empty states when metrics is null", async () => {
+    const detailNoMetrics = {
+      ...mockPosts[0],
+      dev_url: "https://dev.to/testauthor/post-1",
+      recent_posts: [],
+      metrics: null,
+    };
+
+    globalThis.fetch = vi.fn().mockImplementation((url) => {
+      if (url === "/api/posts")
+        return Promise.resolve({ ok: true, json: async () => mockPosts });
+      if (url === "/api/posts/1")
+        return Promise.resolve({
+          ok: true,
+          json: async () => detailNoMetrics,
+        });
+      return Promise.reject(new Error("Not found"));
+    });
+
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByText("Needs review post")).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByText("Needs review post").closest("div.border")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Discussion State")).toBeInTheDocument();
+    });
+
+    // Post Analytics always shown, even without data (5 charts, no Risk Signal Timeline)
+    expect(screen.getByText("Post Analytics")).toBeInTheDocument();
+    expect(screen.getByText("Reply Velocity")).toBeInTheDocument();
+    expect(screen.getByText("Contributing Signals")).toBeInTheDocument();
+    expect(screen.queryByText("Risk Signal Timeline")).not.toBeInTheDocument();
+  });
+
+  it("renders Contributing Signals chart in Post Analytics with risk marker labels", async () => {
+    const detailWithRisk = {
+      ...mockPosts[0],
+      dev_url: "https://dev.to/testauthor/post-1",
+      recent_posts: [],
+      metrics: {
+        velocity_buckets: [{ hour: 0, count: 1 }],
+        comments_per_hour: 0.5,
+        commenter_shares: [{ username: "alice", share: 1 }],
+        positive_pct: 0,
+        neutral_pct: 100,
+        negative_pct: 0,
+        constructiveness_buckets: [],
+        avg_comment_length: 10,
+        reply_ratio: 0,
+        alternating_pairs: 0,
+        risk_components: {
+          frequency_penalty: 2,
+          short_content: true,
+          no_engagement: false,
+          promo_keywords: 1,
+          repeated_links: 0,
+          engagement_credit: 0,
+        },
+        risk_score: 5,
+        sentiment_flips: 0,
+        is_first_post: false,
+        help_keywords: 0,
+      },
+    };
+
+    globalThis.fetch = vi.fn().mockImplementation((url) => {
+      if (url === "/api/posts")
+        return Promise.resolve({ ok: true, json: async () => mockPosts });
+      if (url === "/api/posts/1")
+        return Promise.resolve({
+          ok: true,
+          json: async () => detailWithRisk,
+        });
+      return Promise.reject(new Error("Not found"));
+    });
+
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByText("Needs review post")).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByText("Needs review post").closest("div.border")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Discussion State")).toBeInTheDocument();
+    });
+
+    // Contributing Signals chart appears in Post Analytics
+    expect(screen.getByText("Contributing Signals")).toBeInTheDocument();
+    expect(screen.getByText("Frequency Penalty")).toBeInTheDocument();
+    expect(screen.getByText("Short Content")).toBeInTheDocument();
+    expect(screen.getByText("Promotional Keywords")).toBeInTheDocument();
+    // Old name "Risk Signal Timeline" should not exist
+    expect(screen.queryByText("Risk Signal Timeline")).not.toBeInTheDocument();
+    // Inline "Contributing signals:" label in Discussion State should not exist
+    expect(screen.queryByText("Contributing signals:")).not.toBeInTheDocument();
   });
 });

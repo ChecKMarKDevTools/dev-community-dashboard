@@ -18,7 +18,7 @@ import {
   sortByAttentionPriority,
   ATTENTION_META,
   SIGNAL_TOOLTIPS,
-  SCORE_BREAKDOWN_SIGNALS,
+  DISCUSSION_STATE_SIGNALS,
   ATTENTION_PRIORITY,
 } from "./dashboard-helpers";
 
@@ -42,7 +42,7 @@ describe("getCategoryLabel", () => {
     expect(getCategoryLabel("NORMAL")).toBe("Steady Signal");
     expect(getCategoryLabel("BOOST_VISIBILITY")).toBe("Trending Signal");
     expect(getCategoryLabel("NEEDS_RESPONSE")).toBe("Awaiting Collaboration");
-    expect(getCategoryLabel("NEEDS_REVIEW")).toBe("Elevated Signal");
+    expect(getCategoryLabel("NEEDS_REVIEW")).toBe("Rapid Discussion");
     expect(getCategoryLabel("POSSIBLY_LOW_QUALITY")).toBe("Anomalous Signal");
   });
 
@@ -328,7 +328,7 @@ describe("getWhatsHappening", () => {
 
   it("returns waiting observation for support >= 3", () => {
     expect(getWhatsHappening(["Support Score: 4"])).toBe(
-      "People are waiting for guidance or clarification.",
+      "People are waiting on feedback.",
     );
   });
 
@@ -367,7 +367,7 @@ describe("formatSignalDisplay", () => {
     expect(formatSignalDisplay("Unique Commenters: 18")).toBe(
       "Participants: 18",
     );
-    expect(formatSignalDisplay("Effort: 30.01")).toBe("Effort Score: 30");
+    expect(formatSignalDisplay("Effort: 30.01")).toBe("Effort Level: 30");
     expect(formatSignalDisplay("Attention Delta: 23.62")).toBe(
       "Attention Shift: 24",
     );
@@ -442,9 +442,12 @@ describe("sortByAttentionPriority", () => {
       makePost(1, "NORMAL", 100),
       makePost(2, "NEEDS_RESPONSE", 10),
       makePost(3, "BOOST_VISIBILITY", 30),
+      makePost(4, "POSSIBLY_LOW_QUALITY", 20),
+      makePost(5, "NEEDS_REVIEW", 40),
     ];
     const sorted = sortByAttentionPriority(posts);
-    expect(sorted.map((p) => p.id)).toEqual([2, 3, 1]);
+    // Awaiting Collaboration > Anomalous Signal > Trending Signal > Rapid Discussion > Steady
+    expect(sorted.map((p) => p.id)).toEqual([2, 4, 3, 5, 1]);
   });
 
   it("sorts by score descending within same priority", () => {
@@ -492,27 +495,36 @@ describe("constants", () => {
     ]);
   });
 
-  it("SIGNAL_TOOLTIPS has entries for expected signals", () => {
+  it("SIGNAL_TOOLTIPS has entries for non-discussion-state signals only", () => {
     expect(Object.keys(SIGNAL_TOOLTIPS)).toContain("Word Count");
-    expect(Object.keys(SIGNAL_TOOLTIPS)).toContain("Heat Score");
-    expect(Object.keys(SIGNAL_TOOLTIPS)).toContain("Risk Score");
-    expect(Object.keys(SIGNAL_TOOLTIPS)).toContain("Support Score");
+    expect(Object.keys(SIGNAL_TOOLTIPS)).toContain("Unique Commenters");
+    expect(Object.keys(SIGNAL_TOOLTIPS)).toContain("Effort");
     expect(Object.keys(SIGNAL_TOOLTIPS)).toContain("Attention Delta");
+    // Heat/Risk/Support removed — they are shown in Discussion State, not Conversation Signals
+    expect(Object.keys(SIGNAL_TOOLTIPS)).not.toContain("Heat Score");
+    expect(Object.keys(SIGNAL_TOOLTIPS)).not.toContain("Risk Score");
+    expect(Object.keys(SIGNAL_TOOLTIPS)).not.toContain("Support Score");
   });
 
-  it("SCORE_BREAKDOWN_SIGNALS contains the 3 score types", () => {
-    expect(SCORE_BREAKDOWN_SIGNALS.has("Heat Score")).toBe(true);
-    expect(SCORE_BREAKDOWN_SIGNALS.has("Risk Score")).toBe(true);
-    expect(SCORE_BREAKDOWN_SIGNALS.has("Support Score")).toBe(true);
-    expect(SCORE_BREAKDOWN_SIGNALS.has("Word Count")).toBe(false);
+  it("DISCUSSION_STATE_SIGNALS contains the 3 score types", () => {
+    expect(DISCUSSION_STATE_SIGNALS.has("Heat Score")).toBe(true);
+    expect(DISCUSSION_STATE_SIGNALS.has("Risk Score")).toBe(true);
+    expect(DISCUSSION_STATE_SIGNALS.has("Support Score")).toBe(true);
+    expect(DISCUSSION_STATE_SIGNALS.has("Word Count")).toBe(false);
   });
 
   it("ATTENTION_PRIORITY has ascending values for decreasing urgency", () => {
     expect(ATTENTION_PRIORITY.NEEDS_RESPONSE).toBeLessThan(
-      ATTENTION_PRIORITY.NORMAL,
+      ATTENTION_PRIORITY.POSSIBLY_LOW_QUALITY,
+    );
+    expect(ATTENTION_PRIORITY.POSSIBLY_LOW_QUALITY).toBeLessThan(
+      ATTENTION_PRIORITY.BOOST_VISIBILITY,
     );
     expect(ATTENTION_PRIORITY.BOOST_VISIBILITY).toBeLessThan(
       ATTENTION_PRIORITY.NEEDS_REVIEW,
+    );
+    expect(ATTENTION_PRIORITY.NEEDS_REVIEW).toBeLessThan(
+      ATTENTION_PRIORITY.NORMAL,
     );
   });
 });

@@ -5,7 +5,9 @@ import {
   ForemClient,
 } from "@/lib/forem";
 import { supabase } from "@/lib/supabase";
+import { POSITIVE_WORDS, NEGATIVE_WORDS } from "@/lib/sentiment-keywords";
 import type { AttentionCategory } from "@/types/dashboard";
+import type { ArticleMetrics } from "@/types/metrics";
 
 export interface SyncResult {
   synced: number;
@@ -15,16 +17,18 @@ export interface SyncResult {
 
 /**
  * Maximum age of articles to consider for scoring.
- * 7 days covers the community week-in-review horizon and aligns with
- * the display window. Anything older is no longer actionable by moderators.
+ * 5 days matches the purge horizon — anything older is deleted after sync.
  */
-export const SYNC_WINDOW_HOURS = 168; // 7 days
+export const SYNC_WINDOW_HOURS = 120; // 5 days
+
+/** Articles older than this are purged after each sync run. */
+export const PURGE_AGE_HOURS = 120; // 5 days
 
 /**
  * Forem API hard limit: 30 requests per 30 seconds.
  * The RequestQueue in forem.ts already enforces ≤5 parallel with a 1s
  * cooldown between batches. Fetching pages sequentially stays well within
- * the budget even for full 7-day bacfkill runs (typically 4–7 pages).
+ * the budget even for full 5-day backfill runs (typically 4–7 pages).
  */
 export const MAX_PER_PAGE = 100;
 
@@ -70,28 +74,11 @@ function countWords(textHtml?: string): number {
     .filter((w) => w.length > 0).length;
 }
 
-// Basic Sentiments (for Hackathon requirement) — Sets for O(1) lookups (S7776)
-const POSITIVE_WORDS = new Set([
-  "awesome",
-  "great",
-  "excellent",
-  "love",
-  "good",
-  "amazing",
-  "thanks",
-  "helpful",
-]);
-const NEGATIVE_WORDS = new Set([
-  "terrible",
-  "bad",
-  "awful",
-  "hate",
-  "unhelpful",
-  "wrong",
-  "broken",
-  "issue",
-  "bug",
-]);
+// Sentiment keyword lists — exported so the UI can surface them as helper text
+// (Metric Transparency: every signal must be visible in the UI).
+// Sets for O(1) lookups (S7776).
+// Re-export for backward compatibility with tests and other server modules.
+export { POSITIVE_WORDS, NEGATIVE_WORDS } from "@/lib/sentiment-keywords";
 
 const PROMO_WORDS = [
   "subscribe",
@@ -122,6 +109,9 @@ interface CommentMetrics {
   promo_keywords: number;
   help_keywords: number;
   externalDomainCounts: Map<string, number>;
+  comment_timestamps: Date[];
+  commenter_comment_counts: Map<string, number>;
+  comment_depths: Array<{ timestamp: Date; depth: number }>;
 }
 
 function createEmptyMetrics(): CommentMetrics {
@@ -135,6 +125,9 @@ function createEmptyMetrics(): CommentMetrics {
     promo_keywords: 0,
     help_keywords: 0,
     externalDomainCounts: new Map<string, number>(),
+    comment_timestamps: [],
+    commenter_comment_counts: new Map<string, number>(),
+    comment_depths: [],
   };
 }
 
@@ -181,23 +174,39 @@ function processOneComment(
   articleAuthor: string,
   metrics: CommentMetrics,
   parentAuthor?: string,
+  depth: number = 0,
 ): void {
-  const commenter = c.user.username;
-  metrics.uniqueCommenters.add(commenter);
+  // Deleted Forem accounts return null usernames — skip identity-dependent
+  // tracking but still count the comment's text, timestamps, and keywords.
+  const commenter = c.user?.username ?? null;
+
+  if (commenter) {
+    metrics.uniqueCommenters.add(commenter);
+    metrics.commenter_comment_counts.set(
+      commenter,
+      (metrics.commenter_comment_counts.get(commenter) ?? 0) + 1,
+    );
+  }
 
   const txt = c.body_html.toLowerCase();
   metrics.totalCommentWords += countWords(c.body_html);
 
+  // Track timestamp and depth for velocity/constructiveness buckets
+  const commentDate = new Date(c.created_at);
+  metrics.comment_timestamps.push(commentDate);
+  metrics.comment_depths.push({ timestamp: commentDate, depth });
+
   if (parentAuthor) {
     metrics.replies_with_parent++;
     if (c.children && c.children.length > 0) {
-      const replyAuthor = c.children[0].user.username;
-      if (replyAuthor === parentAuthor) metrics.alternating_pairs++;
+      const replyAuthor = c.children[0].user?.username ?? null;
+      if (replyAuthor && replyAuthor === parentAuthor)
+        metrics.alternating_pairs++;
     }
   }
 
   analyzeSentiment(txt.split(/\W+/), metrics);
-  detectKeywords(txt, commenter, articleAuthor, metrics);
+  detectKeywords(txt, commenter ?? "", articleAuthor, metrics);
   trackExternalLinks(c.body_html, metrics);
 }
 
@@ -207,11 +216,18 @@ function processCommentTree(
   articleAuthor: string,
   metrics: CommentMetrics,
   parentAuthor?: string,
+  depth: number = 0,
 ): void {
   for (const c of thread) {
-    processOneComment(c, articleAuthor, metrics, parentAuthor);
+    processOneComment(c, articleAuthor, metrics, parentAuthor, depth);
     if (c.children && c.children.length > 0) {
-      processCommentTree(c.children, articleAuthor, metrics, c.user.username);
+      processCommentTree(
+        c.children,
+        articleAuthor,
+        metrics,
+        c.user?.username ?? undefined,
+        depth + 1,
+      );
     }
   }
 }
@@ -343,6 +359,168 @@ function computeDerivedMetrics(
   };
 }
 
+// ---------------------------------------------------------------------------
+// ArticleMetrics builder helpers
+// ---------------------------------------------------------------------------
+
+const MAX_VELOCITY_BUCKETS = 48;
+
+/** Bucket comment timestamps into hourly bins relative to article publication. */
+export function buildVelocityBuckets(
+  timestamps: ReadonlyArray<Date>,
+  publishedAt: string,
+): Array<{ hour: number; count: number }> {
+  const pubTime = new Date(publishedAt).getTime();
+  const bucketMap = new Map<number, number>();
+  for (const ts of timestamps) {
+    const hoursSincePost = Math.floor(
+      (ts.getTime() - pubTime) / (1000 * 60 * 60),
+    );
+    const hour = Math.max(0, hoursSincePost);
+    bucketMap.set(hour, (bucketMap.get(hour) ?? 0) + 1);
+  }
+  return Array.from(bucketMap.entries())
+    .toSorted(([a], [b]) => a - b)
+    .slice(0, MAX_VELOCITY_BUCKETS)
+    .map(([hour, count]) => ({ hour, count }));
+}
+
+/** Build constructiveness buckets: average reply depth per hour. */
+export function buildConstructivenessBuckets(
+  commentDepths: ReadonlyArray<{ timestamp: Date; depth: number }>,
+  publishedAt: string,
+): Array<{ hour: number; depth_index: number }> {
+  const pubTime = new Date(publishedAt).getTime();
+  const bucketMap = new Map<number, { totalDepth: number; count: number }>();
+  for (const { timestamp, depth } of commentDepths) {
+    const hour = Math.max(
+      0,
+      Math.floor((timestamp.getTime() - pubTime) / (1000 * 60 * 60)),
+    );
+    const existing = bucketMap.get(hour) ?? { totalDepth: 0, count: 0 };
+    existing.totalDepth += depth;
+    existing.count += 1;
+    bucketMap.set(hour, existing);
+  }
+  return Array.from(bucketMap.entries())
+    .toSorted(([a], [b]) => a - b)
+    .slice(0, MAX_VELOCITY_BUCKETS)
+    .map(([hour, { totalDepth, count }]) => ({
+      hour,
+      depth_index: count > 0 ? totalDepth / count : 0,
+    }));
+}
+
+/** Build top-5 commenter share distribution. */
+export function buildCommenterShares(
+  commenterCounts: ReadonlyMap<string, number>,
+  totalComments: number,
+): Array<{ username: string; share: number }> {
+  if (totalComments === 0) return [];
+  return Array.from(commenterCounts.entries())
+    .toSorted(([, a], [, b]) => b - a)
+    .slice(0, 5)
+    .map(([username, count]) => ({
+      username,
+      share: count / totalComments,
+    }));
+}
+
+/** Compute sentiment percentages from pos/neg counts and total comments.
+ *
+ * A comment that contains both positive and negative keywords is counted in
+ * both buckets, so rawPos + rawNeg can exceed 100 %. When that happens both
+ * values are scaled down proportionally so the three segments always sum to
+ * exactly 100 and the DivergingBar proportions match the displayed labels.
+ */
+export function buildSentimentSpread(
+  posComments: number,
+  negComments: number,
+  totalComments: number,
+): { positive_pct: number; neutral_pct: number; negative_pct: number } {
+  if (totalComments === 0) {
+    return { positive_pct: 0, neutral_pct: 100, negative_pct: 0 };
+  }
+  const rawPos = (posComments / totalComments) * 100;
+  const rawNeg = (negComments / totalComments) * 100;
+  const rawTotal = rawPos + rawNeg;
+  const scale = rawTotal > 100 ? 100 / rawTotal : 1;
+  const positive_pct = rawPos * scale;
+  const negative_pct = rawNeg * scale;
+  const neutral_pct = Math.max(0, 100 - positive_pct - negative_pct);
+  return { positive_pct, neutral_pct, negative_pct };
+}
+
+/** Assemble the full ArticleMetrics object from comment tree data. */
+interface BuildMetricsInput {
+  readonly metrics: CommentMetrics;
+  readonly publishedAt: string;
+  readonly commentCount: number;
+  readonly ageHours: number;
+  readonly riskScore: number;
+  readonly frequencyPenalty: number;
+  readonly engagementCredit: number;
+  readonly wordCount: number;
+  readonly reactionCount: number;
+  readonly repeatedLinks: number;
+  readonly isFirstPost: boolean;
+}
+
+export function buildArticleMetrics(
+  input: Readonly<BuildMetricsInput>,
+): ArticleMetrics {
+  const { metrics, publishedAt, commentCount, ageHours } = input;
+
+  const velocityBuckets = buildVelocityBuckets(
+    metrics.comment_timestamps,
+    publishedAt,
+  );
+  const constructivenessBuckets = buildConstructivenessBuckets(
+    metrics.comment_depths,
+    publishedAt,
+  );
+  const commenterShares = buildCommenterShares(
+    metrics.commenter_comment_counts,
+    commentCount,
+  );
+  const sentiment = buildSentimentSpread(
+    metrics.pos_comments,
+    metrics.neg_comments,
+    commentCount,
+  );
+
+  const commentsPerHour = commentCount / Math.max(1, ageHours);
+  const avgCommentLength =
+    commentCount > 0 ? metrics.totalCommentWords / commentCount : 0;
+  const replyRatio = metrics.replies_with_parent / Math.max(1, commentCount);
+  const sentimentFlips = Math.abs(metrics.pos_comments - metrics.neg_comments);
+
+  return {
+    velocity_buckets: velocityBuckets,
+    comments_per_hour: commentsPerHour,
+    commenter_shares: commenterShares,
+    positive_pct: sentiment.positive_pct,
+    neutral_pct: sentiment.neutral_pct,
+    negative_pct: sentiment.negative_pct,
+    constructiveness_buckets: constructivenessBuckets,
+    avg_comment_length: avgCommentLength,
+    reply_ratio: replyRatio,
+    alternating_pairs: metrics.alternating_pairs,
+    risk_components: {
+      frequency_penalty: input.frequencyPenalty,
+      short_content: input.wordCount < 120,
+      no_engagement: input.reactionCount === 0 && commentCount === 0,
+      promo_keywords: metrics.promo_keywords,
+      repeated_links: input.repeatedLinks,
+      engagement_credit: input.engagementCredit,
+    },
+    risk_score: input.riskScore,
+    sentiment_flips: sentimentFlips,
+    is_first_post: input.isFirstPost,
+    help_keywords: metrics.help_keywords,
+  };
+}
+
 /** Bundled inputs for the deep-scoring function (S107: max 7 params) */
 interface DeepScoreInput {
   readonly article: ForemArticle;
@@ -371,20 +549,23 @@ async function deepScoreAndPersist(
   } = input;
 
   let word_count = fallback_word_count;
+  // Use fresh counts from the individual article fetch when available —
+  // the list API snapshot can be stale by the time we deep-score.
+  let comment_count = article.comments_count;
+  let reaction_count = article.public_reactions_count;
   try {
     const fullArticle = await ForemClient.getArticle(article.id);
     word_count = countWords(
       fullArticle.body_markdown || fullArticle.body_html || "",
     );
+    comment_count = fullArticle.comments_count;
+    reaction_count = fullArticle.public_reactions_count;
   } catch {
-    // Fallback: use the estimate passed from lightScoreAndRank if article fetch fails
+    // Fallback: use the estimates passed from lightScoreAndRank if article fetch fails
     word_count = fallback_word_count;
   }
 
   const comments = await ForemClient.getComments(article.id);
-
-  const comment_count = article.comments_count;
-  const reaction_count = article.public_reactions_count;
   const time_since_post = age_hours * 60; // in minutes
 
   const metrics = createEmptyMetrics();
@@ -447,6 +628,20 @@ async function deepScoreAndPersist(
     `Support Score: ${support_score}`,
   ];
 
+  const articleMetrics = buildArticleMetrics({
+    metrics,
+    publishedAt: article.published_at,
+    commentCount: comment_count,
+    ageHours: age_hours,
+    riskScore: risk_score,
+    frequencyPenalty: frequency_penalty,
+    engagementCredit: engagement_credit,
+    wordCount: word_count,
+    reactionCount: reaction_count,
+    repeatedLinks: repeated_links,
+    isFirstPost: is_first_post,
+  });
+
   const { error: articleError } = await supabase.from("articles").upsert({
     id: article.id,
     author: username,
@@ -461,11 +656,14 @@ async function deepScoreAndPersist(
     explanations: explanations,
     title: article.title,
     updated_at: new Date().toISOString(),
+    metrics: articleMetrics,
   });
 
   if (articleError) throw new Error(articleError.message);
 
-  // Save commenters for simple integrity tracking mapping
+  // Save commenters for simple integrity tracking mapping.
+  // uniqueCommenters only contains non-null usernames (deleted accounts are
+  // filtered out in processOneComment), so every entry is safe to upsert.
   for (const commenter of Array.from(metrics.uniqueCommenters)) {
     const { error: commenterError } = await supabase
       .from("commenters")
@@ -586,17 +784,144 @@ async function ensureAuthorUpserted(
 }
 
 /**
+ * Delete articles published more than PURGE_AGE_HOURS ago.
+ * The commenters table has ON DELETE CASCADE, so child rows are cleaned up
+ * automatically. Returns the count of deleted rows.
+ */
+async function purgeStaleArticles(): Promise<number> {
+  const cutoff = new Date(
+    Date.now() - PURGE_AGE_HOURS * 60 * 60 * 1000,
+  ).toISOString();
+
+  const { data, error } = await supabase
+    .from("articles")
+    .delete()
+    .lt("published_at", cutoff)
+    .select("id");
+
+  if (error) {
+    console.error("Purge failed:", error.message);
+    return 0;
+  }
+
+  return data?.length ?? 0;
+}
+
+/**
+ * Backfill articles that were persisted with empty metrics (e.g. because the
+ * metrics column did not exist in PostgREST's cached schema at the time of the
+ * original sync, or because the paginated API didn't return them).
+ *
+ * Queries Supabase for articles within the sync window that have empty `{}`
+ * metrics, fetches each individually from the Forem API by ID, and re-runs
+ * `deepScoreAndPersist` on them.
+ */
+async function backfillEmptyMetrics(
+  allArticles: ForemArticle[],
+  userCache: Map<string, ForemUser | null>,
+  upsertedAuthors: Set<string>,
+): Promise<SyncResult> {
+  const errors: string[] = [];
+  let synced = 0;
+  let failed = 0;
+
+  const windowCutoff = new Date(
+    Date.now() - SYNC_WINDOW_HOURS * 60 * 60 * 1000,
+  ).toISOString();
+  const { data: emptyRows, error: queryError } = await supabase
+    .from("articles")
+    .select("id")
+    .eq("metrics", {})
+    .gte("published_at", windowCutoff);
+
+  if (queryError || !emptyRows || emptyRows.length === 0)
+    return { synced, failed, errors };
+
+  // Build author frequency map from what we already fetched
+  const postsByAuthor24h = buildAuthorFrequencies(allArticles);
+
+  for (const row of emptyRows) {
+    try {
+      const article = await ForemClient.getArticle(row.id, false);
+      const username = article.user.username;
+      const age_hours = getAgeHours(article.published_at);
+      const word_count = article.reading_time_minutes * 200;
+      const author_post_frequency = postsByAuthor24h.get(username) || 1;
+      const preliminary_score =
+        article.public_reactions_count +
+        article.comments_count * 2 +
+        word_count / 100 -
+        age_hours -
+        author_post_frequency;
+
+      const detailedUser = await resolveUser(username, userCache);
+      if (detailedUser) {
+        await ensureAuthorUpserted(username, detailedUser, upsertedAuthors);
+      }
+
+      await deepScoreAndPersist({
+        article,
+        username,
+        word_count,
+        age_hours,
+        author_post_frequency,
+        preliminary_score,
+        detailedUser,
+        postsByAuthor24h,
+      });
+
+      synced++;
+    } catch (err: unknown) {
+      failed++;
+      const message = err instanceof Error ? err.message : "Unknown error";
+      errors.push(`Backfill article ${row.id}: ${message}`);
+    }
+  }
+
+  return { synced, failed, errors };
+}
+
+/** Post-sync maintenance: backfill empty metrics and purge stale articles. */
+async function runPostSyncMaintenance(
+  allArticles: ForemArticle[],
+  userCache: Map<string, ForemUser | null>,
+  upsertedAuthors: Set<string>,
+  result: SyncResult,
+): Promise<void> {
+  // Backfill: re-process articles that have empty metrics (PostgREST schema
+  // cache miss during initial sync, or articles the paginated API didn't
+  // return). Fetch each individually by ID and deep-score them.
+  const backfillResult = await backfillEmptyMetrics(
+    allArticles,
+    userCache,
+    upsertedAuthors,
+  );
+  result.synced += backfillResult.synced;
+  result.failed += backfillResult.failed;
+  result.errors.push(...backfillResult.errors);
+
+  // Purge: remove articles older than PURGE_AGE_HOURS. The commenters
+  // table cascades on article delete, so no separate cleanup is needed.
+  const purged = await purgeStaleArticles();
+  if (purged > 0) {
+    result.errors.push(
+      `Purged ${purged} stale articles (> ${PURGE_AGE_HOURS}h old)`,
+    );
+  }
+}
+
+/**
  * Main sync entry point.
  *
- * Fetches all articles published within the last SYNC_WINDOW_HOURS (7 days),
- * deep-scores every one of them, and upserts results to Supabase. No article
- * cap is applied here — the display limit is handled at query time.
+ * Fetches all articles published within the last SYNC_WINDOW_HOURS (5 days),
+ * deep-scores every one of them, upserts results to Supabase, backfills any
+ * articles with empty metrics, and purges articles older than PURGE_AGE_HOURS.
+ * No article cap is applied — the display limit is handled at query time.
  *
  * The optional `maxToProcess` parameter exists solely for unit tests so they
  * can keep test suites fast without fetching a full week of data.
  */
 export async function syncArticles(maxToProcess?: number): Promise<SyncResult> {
-  const errors: string[] = [];
   const userCache = new Map<string, ForemUser | null>();
   const upsertedAuthors = new Set<string>();
 
@@ -610,8 +935,7 @@ export async function syncArticles(maxToProcess?: number): Promise<SyncResult> {
     const toProcess =
       maxToProcess === undefined ? shortlist : shortlist.slice(0, maxToProcess);
 
-    let synced = 0;
-    let failed = 0;
+    const result: SyncResult = { synced: 0, failed: 0, errors: [] };
 
     for (const candidate of toProcess) {
       try {
@@ -640,16 +964,26 @@ export async function syncArticles(maxToProcess?: number): Promise<SyncResult> {
           postsByAuthor24h,
         });
 
-        synced++;
+        result.synced++;
       } catch (err: unknown) {
-        failed++;
+        result.failed++;
         console.log("SYNC ERROR DETECTED:", err);
         const message = err instanceof Error ? err.message : "Unknown error";
-        errors.push(`Article ${candidate.article.id}: ${message}`);
+        result.errors.push(`Article ${candidate.article.id}: ${message}`);
       }
     }
 
-    return { synced, failed, errors };
+    // Production-only maintenance: backfill + purge
+    if (maxToProcess === undefined) {
+      await runPostSyncMaintenance(
+        allArticles,
+        userCache,
+        upsertedAuthors,
+        result,
+      );
+    }
+
+    return result;
   } catch (err: unknown) {
     throw err instanceof Error ? err : new Error("Fatal Sync Pipeline Error");
   }

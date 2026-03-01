@@ -59,6 +59,10 @@ jobs:
 
       - name: Test with coverage
         run: pnpm test:coverage
+        env:
+          # Raise the V8 heap limit so test workers do not OOM during
+          # coverage collection and merging across 24+ test files.
+          NODE_OPTIONS: "--max-old-space-size=4096"
 
       - name: Upload coverage report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

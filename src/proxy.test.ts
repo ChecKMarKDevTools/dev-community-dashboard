@@ -17,8 +17,7 @@ function makeRequest(method: string, origin?: string): NextRequest {
 }
 
 const ALLOWED_ORIGIN_1 = "https://dev-signal.checkmarkdevtools.dev";
-const ALLOWED_ORIGIN_2 =
-  "https://forem-community-dashboard-abc123-ue.a.run.app";
+const ALLOWED_ORIGIN_2 = "https://dev-community-dashboard-abc123-ue.a.run.app";
 const DISALLOWED_ORIGIN = "https://evil.example.com";
 
 // ---------------------------------------------------------------------------

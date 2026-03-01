@@ -15,7 +15,7 @@ export const ATTENTION_META: Record<
   NORMAL: { variant: "neutral", label: "Steady Signal" },
   BOOST_VISIBILITY: { variant: "info", label: "Trending Signal" },
   NEEDS_RESPONSE: { variant: "teal", label: "Awaiting Collaboration" },
-  NEEDS_REVIEW: { variant: "attention", label: "Elevated Signal" },
+  NEEDS_REVIEW: { variant: "attention", label: "Rapid Discussion" },
   POSSIBLY_LOW_QUALITY: { variant: "critical", label: "Anomalous Signal" },
 };
 
@@ -177,7 +177,7 @@ export function getWhatsHappening(explanations?: string[]): string {
   if (heat >= 10) return "Replies are arriving faster than typical.";
   if (heat >= 5)
     return "Participants are reacting to each other more than the topic.";
-  if (support >= 3) return "People are waiting for guidance or clarification.";
+  if (support >= 3) return "People are waiting on feedback.";
   return "Tone is becoming sharper between participants.";
 }
 
@@ -191,18 +191,12 @@ export const SIGNAL_TOOLTIPS: Record<string, string> = {
     "Rough estimate of how much thinking and replying participants put in; long thoughtful replies raise it, short reactions barely move it.",
   "Attention Delta":
     "Measures how quickly people started paying attention compared to normal; spikes mean the topic suddenly caught eyes.",
-  "Heat Score":
-    "Emotional intensity of replies; disagreement and passion raise it, calm discussion lowers it.",
-  "Risk Score":
-    "Probability the thread breaks platform rules; zero means nothing looks unsafe, even if people disagree loudly.",
-  "Support Score":
-    "Signs of constructive interaction like helping, clarifying, or agreeing; higher means collaborative tone.",
 };
 
 /** Display-name overrides for signal prefixes shown in the Conversation Signals card. */
 const SIGNAL_DISPLAY_NAMES: Record<string, string> = {
   "Unique Commenters": "Participants",
-  Effort: "Effort Score",
+  Effort: "Effort Level",
   "Attention Delta": "Attention Shift",
 };
 
@@ -233,8 +227,8 @@ export function formatSignalDisplay(explanation: string): string {
   return `${displayName}: ${displayValue}`;
 }
 
-/** Signals already shown in the Score Breakdown card — filter them from Activity Signals. */
-export const SCORE_BREAKDOWN_SIGNALS = new Set([
+/** Signals already shown in the Discussion State card — filter them from Conversation Signals. */
+export const DISCUSSION_STATE_SIGNALS = new Set([
   "Heat Score",
   "Risk Score",
   "Support Score",
@@ -246,12 +240,13 @@ export function computeAgeHours(published_at: string): number {
   return Math.round(ageMs / (1000 * 60 * 60));
 }
 
-/** Priority order for attention levels in the queue list */
+/** Priority order for attention levels in the queue list.
+ *  Awaiting Collaboration > Anomalous Signal > Trending Signal > Rapid Discussion > Steady Signal */
 export const ATTENTION_PRIORITY: Record<string, number> = {
   NEEDS_RESPONSE: 0,
-  BOOST_VISIBILITY: 1,
-  NEEDS_REVIEW: 2,
-  POSSIBLY_LOW_QUALITY: 3,
+  POSSIBLY_LOW_QUALITY: 1,
+  BOOST_VISIBILITY: 2,
+  NEEDS_REVIEW: 3,
   NORMAL: 4,
 };
 

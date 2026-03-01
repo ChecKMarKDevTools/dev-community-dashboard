@@ -1,8 +1,11 @@
-import { ForemClient, foremQueue } from "./forem";
+import { ForemClient, foremQueue, resetMissingKeyWarning } from "./forem";
 import { vi, type Mock } from "vitest";
 
 describe("ForemClient", () => {
   beforeEach(() => {
+    // Reset queue before each test so the 1-second batch-cooldown timer
+    // starts from zero and doesn't cause real delays between tests.
+    foremQueue.reset();
     globalThis.fetch = vi.fn();
   });
 
@@ -360,5 +363,78 @@ describe("ForemClient — 429 retry", () => {
     const result = await ForemClient.getUserByUsername("ghost2");
     expect(result).toBeNull();
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Missing DEV_API_KEY warning
+// ---------------------------------------------------------------------------
+
+describe("ForemClient — missing DEV_API_KEY warning", () => {
+  let savedApiKey: string | undefined;
+
+  beforeEach(() => {
+    globalThis.fetch = vi.fn();
+    savedApiKey = process.env.DEV_API_KEY;
+    resetMissingKeyWarning();
+    foremQueue.reset();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    foremQueue.reset();
+    if (savedApiKey === undefined) {
+      delete process.env.DEV_API_KEY;
+    } else {
+      process.env.DEV_API_KEY = savedApiKey;
+    }
+  });
+
+  it("logs a warning when DEV_API_KEY is absent", async () => {
+    delete process.env.DEV_API_KEY;
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    (globalThis.fetch as Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => [],
+    });
+
+    await ForemClient.getLatestArticles(1, 10);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("DEV_API_KEY is not set"),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("only warns once (one-time flag)", async () => {
+    delete process.env.DEV_API_KEY;
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    (globalThis.fetch as Mock).mockResolvedValue({
+      ok: true,
+      json: async () => [],
+    });
+
+    await ForemClient.getLatestArticles(1, 10);
+    // Reset queue cooldown so the second call doesn't wait the full 1s batch
+    // delay — the warning flag is independent of the request queue state.
+    foremQueue.reset();
+    await ForemClient.getLatestArticles(2, 10);
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  it("does not warn when DEV_API_KEY is set", async () => {
+    process.env.DEV_API_KEY = "my-key";
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    (globalThis.fetch as Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => [],
+    });
+
+    await ForemClient.getLatestArticles(1, 10);
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 });
