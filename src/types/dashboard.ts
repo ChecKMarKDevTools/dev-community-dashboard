@@ -6,6 +6,8 @@ export type AttentionCategory =
   | "BOOST_VISIBILITY"
   | "NORMAL";
 
+import type { ArticleMetrics } from "@/types/metrics";
+
 // Matches the DB `articles` table schema returned by /api/posts and /api/posts/[id].
 export type Post = {
   id: number;
@@ -18,6 +20,7 @@ export type Post = {
   author: string;
   reactions: number;
   comments: number;
+  metrics?: ArticleMetrics | null;
 };
 
 // Subset returned for recent posts by /api/posts/[id] (includes canonical_url for linking).
