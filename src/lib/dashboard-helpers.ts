@@ -1,4 +1,5 @@
 import type { Post } from "@/types/dashboard";
+import { HELP_WORDS } from "@/lib/sentiment-keywords";
 
 /** Attention-level metadata: badge variant and human-readable label.
  *  No traffic-light grading — each category has a distinct semantic color.
@@ -43,6 +44,18 @@ export function getAttentionVariant(
 
 export function getCategoryLabel(level: string): string {
   return (ATTENTION_META[level] ?? DEFAULT_ATTENTION).label;
+}
+
+/**
+ * Returns a tooltip string explaining how the given attention category is
+ * determined, surfacing the exact signals the pipeline looks for.
+ * Returns undefined for categories that don't need additional explanation.
+ */
+export function getCategoryTooltip(level: string): string | undefined {
+  if (level === "NEEDS_RESPONSE") {
+    return `Awaiting Collaboration: post hasn't received meaningful engagement yet. Help-seeking phrases detected in comments trigger this category: ${HELP_WORDS.join(", ")}.`;
+  }
+  return undefined;
 }
 
 export function getRecentPostBadgeVariant(

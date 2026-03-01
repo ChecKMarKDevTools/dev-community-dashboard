@@ -3,6 +3,7 @@ import type { Post } from "@/types/dashboard";
 import {
   getAttentionVariant,
   getCategoryLabel,
+  getCategoryTooltip,
   getRecentPostBadgeVariant,
   getQualitativeLevel,
   getScoreQualitativeLabel,
@@ -51,6 +52,29 @@ describe("getCategoryLabel", () => {
   it("returns default label for unknown levels", () => {
     expect(getCategoryLabel("UNKNOWN")).toBe("Steady Signal");
     expect(getCategoryLabel("")).toBe("Steady Signal");
+  });
+});
+
+describe("getCategoryTooltip", () => {
+  it("returns a tooltip string for NEEDS_RESPONSE listing all help words", () => {
+    const tooltip = getCategoryTooltip("NEEDS_RESPONSE");
+    expect(tooltip).toBeDefined();
+    expect(tooltip).toContain("need help");
+    expect(tooltip).toContain("stuck");
+    expect(tooltip).toContain("beginner question");
+    expect(tooltip).toContain("confused");
+    expect(tooltip).toContain("how do i");
+    expect(tooltip).toContain("what am i missing");
+    expect(tooltip).toContain("why doesn't");
+  });
+
+  it("returns undefined for categories that need no tooltip", () => {
+    expect(getCategoryTooltip("NORMAL")).toBeUndefined();
+    expect(getCategoryTooltip("BOOST_VISIBILITY")).toBeUndefined();
+    expect(getCategoryTooltip("SIGNAL_AT_RISK")).toBeUndefined();
+    expect(getCategoryTooltip("NEEDS_REVIEW")).toBeUndefined();
+    expect(getCategoryTooltip("SILENT_SIGNAL")).toBeUndefined();
+    expect(getCategoryTooltip("UNKNOWN")).toBeUndefined();
   });
 });
 

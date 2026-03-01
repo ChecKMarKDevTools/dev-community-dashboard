@@ -5,7 +5,11 @@ import {
   ForemClient,
 } from "@/lib/forem";
 import { supabase } from "@/lib/supabase";
-import { POSITIVE_WORDS, NEGATIVE_WORDS } from "@/lib/sentiment-keywords";
+import {
+  POSITIVE_WORDS,
+  NEGATIVE_WORDS,
+  HELP_WORDS,
+} from "@/lib/sentiment-keywords";
 import type { AttentionCategory } from "@/types/dashboard";
 import type { ArticleMetrics } from "@/types/metrics";
 
@@ -78,11 +82,14 @@ function countWords(textHtml?: string): number {
     .filter((w) => w.length > 0).length;
 }
 
-// Sentiment keyword lists — exported so the UI can surface them as helper text
+// Keyword lists — exported so the UI can surface them as helper text
 // (Metric Transparency: every signal must be visible in the UI).
-// Sets for O(1) lookups (S7776).
 // Re-export for backward compatibility with tests and other server modules.
-export { POSITIVE_WORDS, NEGATIVE_WORDS } from "@/lib/sentiment-keywords";
+export {
+  POSITIVE_WORDS,
+  NEGATIVE_WORDS,
+  HELP_WORDS,
+} from "@/lib/sentiment-keywords";
 
 const PROMO_WORDS = [
   "subscribe",
@@ -91,15 +98,6 @@ const PROMO_WORDS = [
   "buy",
   "sale",
   "link in bio",
-];
-const HELP_WORDS = [
-  "stuck",
-  "confused",
-  "need help",
-  "why doesn't",
-  "how do i",
-  "what am i missing",
-  "beginner question",
 ];
 
 /** Accumulated metrics from comment tree traversal */
