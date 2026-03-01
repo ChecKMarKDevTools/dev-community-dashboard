@@ -105,7 +105,8 @@ function DetailPanel({
           onClick={onBack}
           className="text-accent-primary hover:text-accent-hover flex items-center gap-1 text-sm font-medium"
         >
-          <ChevronRight className="h-4 w-4 rotate-180" /> Back to queue
+          <ChevronRight className="h-4 w-4 rotate-180" aria-hidden="true" />{" "}
+          Back to queue
         </button>
       </div>
 
@@ -410,14 +411,23 @@ export function Dashboard() {
 
   return (
     <div className="flex h-screen overflow-hidden">
+      {/* Skip to main content for keyboard users */}
+      <a
+        href="#main-content"
+        className="bg-accent-primary text-paper-clue absolute top-2 left-2 z-50 -translate-y-full rounded px-4 py-2 text-sm font-medium transition-transform focus:translate-y-0"
+      >
+        Skip to main content
+      </a>
+
       {/* Left panel: Post List */}
-      <div
+      <aside
+        aria-label="Post queue"
         className={cn(
           "border-surface-border glass-panel bg-paper-clue flex w-full flex-col border-r transition-all duration-300",
           selectedPostId ? "hidden md:flex md:w-1/2 lg:w-4/12" : "w-full",
         )}
       >
-        <div className="header-glass border-surface-border border-b p-6">
+        <header className="header-glass border-surface-border border-b p-6">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="font-heading text-text-primary text-2xl font-bold tracking-tight">
@@ -428,7 +438,7 @@ export function Dashboard() {
                 interaction patterns, not popularity.
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <nav aria-label="Site actions" className="flex items-center gap-2">
               <ThemeToggle />
               <a
                 href="https://github.com/ChecKMarKDevTools/dev-community-dashboard/issues"
@@ -436,12 +446,12 @@ export function Dashboard() {
                 rel="noopener noreferrer"
                 className="border-surface-border text-accent-primary hover:bg-surface-secondary hover:text-accent-hover inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors"
               >
-                <MessageSquare className="h-3 w-3" /> Feedback{" "}
-                <ExternalLink className="h-3 w-3" />
+                <MessageSquare className="h-3 w-3" aria-hidden="true" />{" "}
+                Feedback <ExternalLink className="h-3 w-3" aria-hidden="true" />
               </a>
-            </div>
+            </nav>
           </div>
-        </div>
+        </header>
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
           {posts.map((post) => (
             <QueueCard
@@ -451,9 +461,9 @@ export function Dashboard() {
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
-                  <h3 className="font-heading text-text-primary truncate font-semibold">
+                  <h2 className="font-heading text-text-primary truncate text-base font-semibold">
                     {post.title}
-                  </h3>
+                  </h2>
                   <PostMeta
                     author={post.author}
                     date={post.published_at}
@@ -476,11 +486,14 @@ export function Dashboard() {
             />
           )}
         </div>
-      </div>
+      </aside>
 
       {/* Right panel: Post Details — only rendered when a post is selected */}
       {selectedPostId !== null && (
-        <div className="bg-surface-primary/50 relative flex-1 overflow-y-auto p-6 md:p-8">
+        <main
+          id="main-content"
+          className="bg-surface-primary/50 relative flex-1 overflow-y-auto p-6 md:p-8"
+        >
           <DetailPanel
             selectedPostId={selectedPostId}
             detailsLoading={detailsLoading}
@@ -488,7 +501,7 @@ export function Dashboard() {
             onBack={() => setSelectedPostId(null)}
             onClose={() => setSelectedPostId(null)}
           />
-        </div>
+        </main>
       )}
     </div>
   );

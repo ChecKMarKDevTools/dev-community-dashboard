@@ -269,7 +269,7 @@ describe("Dashboard Component", () => {
     });
 
     const titles = screen
-      .getAllByRole("heading", { level: 3 })
+      .getAllByRole("heading", { level: 2 })
       .map((h) => h.textContent);
     expect(titles).toEqual([
       "Needs response",
