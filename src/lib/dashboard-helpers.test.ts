@@ -17,6 +17,7 @@ import {
   getSignalName,
   computeAgeHours,
   sortByAttentionPriority,
+  getSignalSummary,
   ATTENTION_META,
   SIGNAL_TOOLTIPS,
   DISCUSSION_STATE_SIGNALS,
@@ -509,6 +510,43 @@ describe("sortByAttentionPriority", () => {
     ];
     const sorted = sortByAttentionPriority(posts);
     expect(sorted.map((p) => p.id)).toEqual([2, 1]);
+  });
+});
+
+describe("getSignalSummary", () => {
+  it("returns no-data message for unknown method", () => {
+    expect(getSignalSummary(0.5, "unknown")).toContain("No interaction data");
+  });
+
+  it("suggests balanced contribution for signal >= 0.7", () => {
+    const summary = getSignalSummary(0.8, "llm");
+    expect(summary).toContain("substantive");
+    expect(summary).toContain("thoughtful contribution");
+  });
+
+  it("suggests steering toward substance for signal 0.4-0.7", () => {
+    const summary = getSignalSummary(0.5, "heuristic");
+    expect(summary).toContain("steer the conversation");
+  });
+
+  it("suggests setting the tone for signal > 0 and < 0.4", () => {
+    const summary = getSignalSummary(0.2, "llm");
+    expect(summary).toContain("set the tone");
+  });
+
+  it("suggests welcoming reply for signal 0", () => {
+    const summary = getSignalSummary(0, "heuristic");
+    expect(summary).toContain("welcoming reply");
+  });
+
+  it("handles boundary at 0.7 exactly", () => {
+    const summary = getSignalSummary(0.7, "llm");
+    expect(summary).toContain("substantive");
+  });
+
+  it("handles boundary at 0.4 exactly", () => {
+    const summary = getSignalSummary(0.4, "llm");
+    expect(summary).toContain("steer the conversation");
   });
 });
 

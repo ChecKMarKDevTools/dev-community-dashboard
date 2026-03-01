@@ -313,8 +313,12 @@ describe("Dashboard Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/1200 words/)).toBeInTheDocument();
-      expect(screen.getByText(/3h old/)).toBeInTheDocument();
+      // Metrics rendered as emphasized numbers inside a labeled container
+      const metricsBar = screen.getByLabelText("Post engagement metrics");
+      expect(metricsBar).toHaveTextContent("1200");
+      expect(metricsBar).toHaveTextContent("words");
+      expect(metricsBar).toHaveTextContent("3h");
+      expect(metricsBar).toHaveTextContent("old");
     });
   });
 
@@ -871,9 +875,6 @@ describe("Dashboard Component", () => {
           { username: "alice", share: 0.5 },
           { username: "bob", share: 0.3 },
         ],
-        positive_pct: 40,
-        neutral_pct: 40,
-        negative_pct: 20,
         constructiveness_buckets: [
           { hour: 0, depth_index: 0.5 },
           { hour: 1, depth_index: 1.5 },
@@ -890,9 +891,31 @@ describe("Dashboard Component", () => {
           engagement_credit: 1,
         },
         risk_score: 0,
-        sentiment_flips: 1,
         is_first_post: false,
         help_keywords: 0,
+        interaction_signal: 0.65,
+        interaction_method: "llm",
+        topic_tags: ["testing", "react"],
+        interaction_scores: [
+          {
+            index: 0,
+            tone: 0.5,
+            relevance: 0.8,
+            depth: 0.7,
+            constructiveness: 0.6,
+          },
+          {
+            index: 1,
+            tone: 0.3,
+            relevance: 0.6,
+            depth: 0.4,
+            constructiveness: 0.5,
+          },
+        ],
+        interaction_volatility: 0.3,
+        signal_strong_pct: 40,
+        signal_moderate_pct: 40,
+        signal_faint_pct: 20,
       },
     };
 
@@ -923,7 +946,7 @@ describe("Dashboard Component", () => {
     // All chart sections should be visible (5 charts — Contributing Signals in Post Analytics)
     expect(screen.getByText("Reply Velocity")).toBeInTheDocument();
     expect(screen.getByText("Participation Distribution")).toBeInTheDocument();
-    expect(screen.getByText("Sentiment Spread")).toBeInTheDocument();
+    expect(screen.getByText("Interaction Signal")).toBeInTheDocument();
     expect(screen.getByText("Constructiveness Trend")).toBeInTheDocument();
     expect(screen.getByText("Contributing Signals")).toBeInTheDocument();
     expect(screen.queryByText("Risk Signal Timeline")).not.toBeInTheDocument();
@@ -977,9 +1000,6 @@ describe("Dashboard Component", () => {
         velocity_buckets: [{ hour: 0, count: 1 }],
         comments_per_hour: 0.5,
         commenter_shares: [{ username: "alice", share: 1 }],
-        positive_pct: 0,
-        neutral_pct: 100,
-        negative_pct: 0,
         constructiveness_buckets: [],
         avg_comment_length: 10,
         reply_ratio: 0,
@@ -993,9 +1013,13 @@ describe("Dashboard Component", () => {
           engagement_credit: 0,
         },
         risk_score: 5,
-        sentiment_flips: 0,
         is_first_post: false,
         help_keywords: 0,
+        interaction_signal: 0.2,
+        interaction_method: "heuristic",
+        signal_strong_pct: 0,
+        signal_moderate_pct: 0,
+        signal_faint_pct: 100,
       },
     };
 
@@ -1034,7 +1058,7 @@ describe("Dashboard Component", () => {
     expect(screen.queryByText("Contributing signals:")).not.toBeInTheDocument();
   });
 
-  it("shows LLM-powered tooltip and mean/volatility when sentiment_method is 'llm'", async () => {
+  it("shows AI-powered tooltip, signal/method/volatility and topic tags when interaction_method is 'llm'", async () => {
     const detailWithLLM = {
       ...mockPosts[0],
       dev_url: "https://dev.to/testauthor/post-1",
@@ -1043,9 +1067,6 @@ describe("Dashboard Component", () => {
         velocity_buckets: [],
         comments_per_hour: 0,
         commenter_shares: [],
-        positive_pct: 50,
-        neutral_pct: 25,
-        negative_pct: 25,
         constructiveness_buckets: [],
         avg_comment_length: 20,
         reply_ratio: 0,
@@ -1059,16 +1080,31 @@ describe("Dashboard Component", () => {
           engagement_credit: 0,
         },
         risk_score: 0,
-        sentiment_flips: 1,
         is_first_post: false,
         help_keywords: 0,
-        sentiment_method: "llm",
-        sentiment_mean: 0.35,
-        sentiment_volatility: 0.6,
-        sentiment_scores: [
-          { index: 0, score: 0.8 },
-          { index: 1, score: -0.1 },
+        interaction_signal: 0.72,
+        interaction_method: "llm",
+        topic_tags: ["typescript", "testing"],
+        interaction_scores: [
+          {
+            index: 0,
+            tone: 0.8,
+            relevance: 0.9,
+            depth: 0.7,
+            constructiveness: 0.6,
+          },
+          {
+            index: 1,
+            tone: -0.1,
+            relevance: 0.5,
+            depth: 0.3,
+            constructiveness: 0.4,
+          },
         ],
+        interaction_volatility: 0.6,
+        signal_strong_pct: 50,
+        signal_moderate_pct: 25,
+        signal_faint_pct: 25,
       },
     };
 
@@ -1093,21 +1129,37 @@ describe("Dashboard Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Sentiment Spread")).toBeInTheDocument();
+      expect(screen.getByText("Interaction Signal")).toBeInTheDocument();
     });
 
-    // LLM tooltip text should be present
+    // Signal tooltip text should be present — describes what the signal measures
     const tooltips = screen.getAllByRole("tooltip");
     const tooltipTexts = tooltips.map((el) => el.textContent);
-    expect(tooltipTexts.some((t) => t?.includes("LLM-powered"))).toBe(true);
+    expect(
+      tooltipTexts.some((t) => t?.includes("contribute most constructively")),
+    ).toBe(true);
 
-    // Mean and volatility sub-line should be visible
-    expect(screen.getByText(/Mean: 0\.35/)).toBeInTheDocument();
-    expect(screen.getByText(/Volatility: 60%/)).toBeInTheDocument();
+    // Signal, Method, and Volatility sub-line should be visible
+    // The text is split across nested <span> elements inside a single <p>,
+    // so we match on the combined textContent of the container.
+    const signalLine = screen.getByText(
+      (_content, element) =>
+        element?.tagName === "P" &&
+        Boolean(element.textContent?.includes("Signal:")) &&
+        Boolean(element.textContent?.includes("Method:")) &&
+        Boolean(element.textContent?.includes("LLM")) &&
+        Boolean(element.textContent?.includes("Volatility:")) &&
+        Boolean(element.textContent?.includes("60%")),
+    );
+    expect(signalLine).toBeInTheDocument();
+
+    // Topic tags should render as spans
+    expect(screen.getByText("typescript")).toBeInTheDocument();
+    expect(screen.getByText("testing")).toBeInTheDocument();
   });
 
-  it("shows keyword-based tooltip when sentiment_method is 'keyword'", async () => {
-    const detailWithKeyword = {
+  it("shows heuristic tooltip when interaction_method is 'heuristic'", async () => {
+    const detailWithHeuristic = {
       ...mockPosts[0],
       dev_url: "https://dev.to/testauthor/post-1",
       recent_posts: [],
@@ -1115,9 +1167,6 @@ describe("Dashboard Component", () => {
         velocity_buckets: [],
         comments_per_hour: 0,
         commenter_shares: [],
-        positive_pct: 40,
-        neutral_pct: 40,
-        negative_pct: 20,
         constructiveness_buckets: [],
         avg_comment_length: 20,
         reply_ratio: 0,
@@ -1131,10 +1180,13 @@ describe("Dashboard Component", () => {
           engagement_credit: 0,
         },
         risk_score: 0,
-        sentiment_flips: 1,
         is_first_post: false,
         help_keywords: 0,
-        sentiment_method: "keyword",
+        interaction_signal: 0.45,
+        interaction_method: "heuristic",
+        signal_strong_pct: 20,
+        signal_moderate_pct: 60,
+        signal_faint_pct: 20,
       },
     };
 
@@ -1144,7 +1196,7 @@ describe("Dashboard Component", () => {
       if (url === "/api/posts/1")
         return Promise.resolve({
           ok: true,
-          json: async () => detailWithKeyword,
+          json: async () => detailWithHeuristic,
         });
       return Promise.reject(new Error("Not found"));
     });
@@ -1159,15 +1211,27 @@ describe("Dashboard Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Sentiment Spread")).toBeInTheDocument();
+      expect(screen.getByText("Interaction Signal")).toBeInTheDocument();
     });
 
-    // Keyword tooltip should be present
+    // Signal tooltip should be present (describes what signal measures)
     const tooltips = screen.getAllByRole("tooltip");
     const tooltipTexts = tooltips.map((el) => el.textContent);
-    expect(tooltipTexts.some((t) => t?.includes("Keyword-based"))).toBe(true);
+    expect(
+      tooltipTexts.some((t) => t?.includes("contribute most constructively")),
+    ).toBe(true);
 
-    // Mean/volatility sub-line should NOT be shown for keyword method
-    expect(screen.queryByText(/Mean:/)).not.toBeInTheDocument();
+    // Signal and Method should be shown, but Volatility should NOT for heuristic method.
+    // The text is split across nested <span> elements inside a single <p>,
+    // so we match on the combined textContent of the container.
+    const signalLine = screen.getByText(
+      (_content, element) =>
+        element?.tagName === "P" &&
+        Boolean(element.textContent?.includes("Signal:")) &&
+        Boolean(element.textContent?.includes("Method:")) &&
+        Boolean(element.textContent?.includes("Heuristic")),
+    );
+    expect(signalLine).toBeInTheDocument();
+    expect(signalLine.textContent).not.toContain("Volatility:");
   });
 });

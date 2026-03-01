@@ -10,7 +10,11 @@ import {
   NEGATIVE_WORDS,
   HELP_WORDS,
 } from "@/lib/sentiment-keywords";
-import { analyzeSentimentBatch, type LLMSentimentResponse } from "@/lib/openai";
+import {
+  analyzeConversation,
+  type LLMConversationResponse,
+  type LLMCommentScore,
+} from "@/lib/openai";
 import type { AttentionCategory } from "@/types/dashboard";
 import type { ArticleMetrics } from "@/types/metrics";
 
@@ -350,7 +354,7 @@ function detectRepeatedLinks(domainCounts: Map<string, number>): number {
   return 0;
 }
 
-/** Standard deviation of scores clamped to [0, 1].
+/** Standard deviation of tone scores clamped to [0, 1].
  * Used to compute local volatility from the full merged score set
  * (including cached scores) when the LLM only re-scored a subset. */
 export function computeVolatilityFromScores(
@@ -367,13 +371,22 @@ export function computeVolatilityFromScores(
  * and incremental cache keying across sync runs. */
 interface EnrichedCommentScore {
   readonly index: number;
-  readonly score: number;
+  readonly tone: number;
+  readonly relevance: number;
+  readonly depth: number;
+  readonly constructiveness: number;
   readonly id_code: string;
   readonly body_hash: string;
 }
 
 /** Per-comment entry cached from the prior sync's JSONB metrics. */
-type CachedEntry = { score: number; body_hash: string };
+type CachedEntry = {
+  tone: number;
+  relevance: number;
+  depth: number;
+  constructiveness: number;
+  body_hash: string;
+};
 
 /** Build the score cache from the last persisted JSONB metrics row.
  * Returns a Map keyed by Forem comment id_code. */
@@ -386,17 +399,26 @@ function buildScoreCache(
     (
       metricsRaw as
         | {
-            sentiment_scores?: ReadonlyArray<{
+            interaction_scores?: ReadonlyArray<{
               id_code?: string;
               body_hash?: string;
-              score: number;
+              tone: number;
+              relevance: number;
+              depth: number;
+              constructiveness: number;
             }>;
           }
         | undefined
-    )?.sentiment_scores ?? [];
+    )?.interaction_scores ?? [];
   for (const s of scores) {
     if (s.id_code !== undefined && s.body_hash !== undefined) {
-      cache.set(s.id_code, { score: s.score, body_hash: s.body_hash });
+      cache.set(s.id_code, {
+        tone: s.tone,
+        relevance: s.relevance,
+        depth: s.depth,
+        constructiveness: s.constructiveness,
+        body_hash: s.body_hash,
+      });
     }
   }
   return cache;
@@ -424,12 +446,12 @@ function collectNewComments(
 function mergeCommentScores(
   flatComments: ReadonlyArray<{ text: string; id_code: string }>,
   scoreCache: ReadonlyMap<string, CachedEntry>,
-  rawLlmResult: LLMSentimentResponse | null,
+  rawLlmResult: LLMConversationResponse | null,
 ): EnrichedCommentScore[] {
-  const llmByIdx = new Map<number, number>();
+  const llmByIdx = new Map<number, LLMCommentScore>();
   if (rawLlmResult) {
     for (const c of rawLlmResult.comments) {
-      llmByIdx.set(c.index, c.score);
+      llmByIdx.set(c.index, c);
     }
   }
   const enriched: EnrichedCommentScore[] = [];
@@ -443,7 +465,10 @@ function mergeCommentScores(
       if (llmScore !== undefined) {
         enriched.push({
           index: i,
-          score: llmScore,
+          tone: llmScore.tone,
+          relevance: llmScore.relevance,
+          depth: llmScore.depth,
+          constructiveness: llmScore.constructiveness,
           id_code: c.id_code,
           body_hash: h,
         });
@@ -452,7 +477,10 @@ function mergeCommentScores(
     } else {
       enriched.push({
         index: i,
-        score: cached.score,
+        tone: cached.tone,
+        relevance: cached.relevance,
+        depth: cached.depth,
+        constructiveness: cached.constructiveness,
         id_code: c.id_code,
         body_hash: h,
       });
@@ -578,52 +606,54 @@ export function buildCommenterShares(
     }));
 }
 
-/** Compute sentiment percentages from pos/neg counts and total comments.
- *
- * A comment that contains both positive and negative keywords is counted in
- * both buckets, so rawPos + rawNeg can exceed 100 %. When that happens both
- * values are scaled down proportionally so the three segments always sum to
- * exactly 100 and the DivergingBar proportions match the displayed labels.
- */
-export function buildSentimentSpread(
-  posComments: number,
-  negComments: number,
-  totalComments: number,
-): { positive_pct: number; neutral_pct: number; negative_pct: number } {
-  if (totalComments === 0) {
-    return { positive_pct: 0, neutral_pct: 100, negative_pct: 0 };
-  }
-  const rawPos = (posComments / totalComments) * 100;
-  const rawNeg = (negComments / totalComments) * 100;
-  const rawTotal = rawPos + rawNeg;
-  const scale = rawTotal > 100 ? 100 / rawTotal : 1;
-  const positive_pct = rawPos * scale;
-  const negative_pct = rawNeg * scale;
-  const neutral_pct = Math.max(0, 100 - positive_pct - negative_pct);
-  return { positive_pct, neutral_pct, negative_pct };
+/** Compute per-comment composite signal strength from multi-dimensional interaction scores.
+ * Tone is 10% weight (normalized from [-1,1] to [0,1]), substance signals are 90%. */
+export function computeCommentSignal(comment: {
+  tone: number;
+  relevance: number;
+  depth: number;
+  constructiveness: number;
+}): number {
+  const normalizedTone = (comment.tone + 1) / 2; // [-1,1] → [0,1]
+  return (
+    comment.relevance * 0.3 +
+    comment.depth * 0.3 +
+    comment.constructiveness * 0.3 +
+    normalizedTone * 0.1
+  );
 }
 
-/** Compute sentiment percentages from LLM per-comment float scores.
- *
- * Thresholds: score > 0.25 = positive, score < -0.25 = negative, else neutral.
- */
-export function buildSentimentSpreadFromScores(
-  scores: ReadonlyArray<{ index: number; score: number }>,
-): { positive_pct: number; neutral_pct: number; negative_pct: number } {
+/** Build signal spread percentages from per-comment composite scores.
+ * Strong: > 0.6, Moderate: 0.3-0.6, Faint: < 0.3. */
+export function buildSignalSpread(
+  scores: ReadonlyArray<EnrichedCommentScore>,
+): {
+  signal_strong_pct: number;
+  signal_moderate_pct: number;
+  signal_faint_pct: number;
+} {
   if (scores.length === 0) {
-    return { positive_pct: 0, neutral_pct: 100, negative_pct: 0 };
+    return {
+      signal_strong_pct: 0,
+      signal_moderate_pct: 0,
+      signal_faint_pct: 0,
+    };
   }
-  let pos = 0;
-  let neg = 0;
+  let high = 0;
+  let low = 0;
   for (const s of scores) {
-    if (s.score > 0.25) pos++;
-    else if (s.score < -0.25) neg++;
+    const q = computeCommentSignal(s);
+    if (q > 0.6) high++;
+    else if (q < 0.3) low++;
   }
   const total = scores.length;
-  const positive_pct = (pos / total) * 100;
-  const negative_pct = (neg / total) * 100;
-  const neutral_pct = Math.max(0, 100 - positive_pct - negative_pct);
-  return { positive_pct, neutral_pct, negative_pct };
+  const signal_strong_pct = (high / total) * 100;
+  const signal_faint_pct = (low / total) * 100;
+  const signal_moderate_pct = Math.max(
+    0,
+    100 - signal_strong_pct - signal_faint_pct,
+  );
+  return { signal_strong_pct, signal_moderate_pct, signal_faint_pct };
 }
 
 /** Assemble the full ArticleMetrics object from comment tree data. */
@@ -639,7 +669,7 @@ interface BuildMetricsInput {
   readonly reactionCount: number;
   readonly repeatedLinks: number;
   readonly isFirstPost: boolean;
-  readonly llmResult: LLMSentimentResponse | null;
+  readonly llmResult: LLMConversationResponse | null;
   /** Merged per-comment scores (cached + new LLM). When present, persisted in
    * JSONB with id_code and body_hash for incremental scoring on future syncs. */
   readonly enrichedScores?: ReadonlyArray<EnrichedCommentScore>;
@@ -663,50 +693,48 @@ export function buildArticleMetrics(
     commentCount,
   );
 
-  // Sentiment: prefer LLM scores when available, fall back to keyword counting.
-  // enrichedScores (merged cache + new LLM results) carries id_code/body_hash
-  // for JSONB persistence and is preferred over raw llmResult.comments.
-  const useLLM = llmResult !== null;
-  const scoreArr = input.enrichedScores ?? llmResult?.comments ?? [];
-  const sentiment = useLLM
-    ? buildSentimentSpreadFromScores(scoreArr)
-    : buildSentimentSpread(
-        metrics.pos_comments,
-        metrics.neg_comments,
-        commentCount,
-      );
-
   const commentsPerHour = commentCount / Math.max(1, ageHours);
   const avgCommentLength =
     commentCount > 0 ? metrics.totalCommentWords / commentCount : 0;
   const replyRatio = metrics.replies_with_parent / Math.max(1, commentCount);
 
-  // sentiment_flips: LLM mode uses volatility * comment count;
-  // keyword mode uses absolute pos/neg difference (unchanged)
-  const sentimentFlips = useLLM
-    ? Math.round(llmResult.volatility * commentCount)
-    : Math.abs(metrics.pos_comments - metrics.neg_comments);
+  // Interaction signal: prefer LLM scores, fall back to heuristic.
+  const useLLM = llmResult !== null;
+  const scoreArr = input.enrichedScores ?? [];
 
-  // LLM-specific fields (undefined when using keyword fallback)
+  // Signal spread and composite score
+  const signalSpread =
+    scoreArr.length > 0
+      ? buildSignalSpread(scoreArr)
+      : { signal_strong_pct: 0, signal_moderate_pct: 0, signal_faint_pct: 0 };
+
+  // Interaction signal: LLM = mean of per-comment composites; heuristic = derived from metrics
+  const interactionSignal =
+    scoreArr.length > 0
+      ? scoreArr.reduce((sum, s) => sum + computeCommentSignal(s), 0) /
+        scoreArr.length
+      : computeHeuristicSignal(
+          replyRatio,
+          avgCommentLength,
+          metrics.alternating_pairs,
+          metrics.uniqueCommenters.size,
+          commentCount,
+        );
+
+  // LLM-specific fields
   const llmFields = useLLM
     ? {
-        sentiment_scores: scoreArr,
-        sentiment_volatility: llmResult.volatility,
-        sentiment_mean:
-          scoreArr.length > 0
-            ? scoreArr.reduce((sum, c) => sum + c.score, 0) / scoreArr.length
-            : 0,
-        sentiment_method: "llm" as const,
+        interaction_scores: scoreArr,
+        interaction_volatility: llmResult.volatility,
+        interaction_method: "llm" as const,
+        topic_tags: llmResult.topic_tags,
       }
-    : { sentiment_method: "keyword" as const };
+    : { interaction_method: "heuristic" as const };
 
   return {
     velocity_buckets: velocityBuckets,
     comments_per_hour: commentsPerHour,
     commenter_shares: commenterShares,
-    positive_pct: sentiment.positive_pct,
-    neutral_pct: sentiment.neutral_pct,
-    negative_pct: sentiment.negative_pct,
     constructiveness_buckets: constructivenessBuckets,
     avg_comment_length: avgCommentLength,
     reply_ratio: replyRatio,
@@ -720,11 +748,35 @@ export function buildArticleMetrics(
       engagement_credit: input.engagementCredit,
     },
     risk_score: input.riskScore,
-    sentiment_flips: sentimentFlips,
     is_first_post: input.isFirstPost,
     help_keywords: metrics.help_keywords,
+    interaction_signal: interactionSignal,
+    ...signalSpread,
     ...llmFields,
   };
+}
+
+/** Deterministic heuristic fallback for interaction quality when LLM is unavailable.
+ * Combines structural conversation signals into a 0.0-1.0 score. */
+function computeHeuristicSignal(
+  replyRatio: number,
+  avgCommentLength: number,
+  alternatingPairs: number,
+  distinctCommenters: number,
+  commentCount: number,
+): number {
+  if (commentCount === 0) return 0;
+  // Normalize each dimension to roughly 0-1
+  const replySignal = Math.min(1, replyRatio);
+  const lengthSignal = Math.min(1, avgCommentLength / 100); // 100 words = max
+  const pairSignal = Math.min(1, alternatingPairs / 5); // 5 pairs = max
+  const diversitySignal = Math.min(1, distinctCommenters / 10); // 10 = max
+  return (
+    replySignal * 0.3 +
+    lengthSignal * 0.3 +
+    pairSignal * 0.2 +
+    diversitySignal * 0.2
+  );
 }
 
 /** Bundled inputs for the deep-scoring function (S107: max 7 params) */
@@ -796,7 +848,7 @@ async function deepScoreAndPersist(
   const toScore = collectNewComments(flatComments, scoreCache);
   const rawLlmResult =
     toScore.length > 0
-      ? await analyzeSentimentBatch(
+      ? await analyzeConversation(
           articleBodyText,
           toScore.map((c) => c.text),
         )
@@ -807,21 +859,27 @@ async function deepScoreAndPersist(
     rawLlmResult,
   );
 
-  // Compute volatility from the full merged score set (not just new LLM scores).
+  // Compute volatility from the full merged tone scores (not just new LLM scores).
   const computedVolatility = computeVolatilityFromScores(
-    enrichedScores.map((s) => s.score),
+    enrichedScores.map((s) => s.tone),
   );
 
   // Reconstruct effectiveLlmResult: non-null iff we have any scored comments
-  // (from cache or LLM). Null triggers keyword fallback in buildArticleMetrics.
+  // (from cache or LLM). Null triggers heuristic fallback in buildArticleMetrics.
   const effectiveLlmResult =
     enrichedScores.length > 0
       ? {
-          comments: enrichedScores.map(({ index, score }) => ({
-            index,
-            score,
-          })),
+          comments: enrichedScores.map(
+            ({ index, tone, relevance, depth, constructiveness }) => ({
+              index,
+              tone,
+              relevance,
+              depth,
+              constructiveness,
+            }),
+          ),
           volatility: computedVolatility,
+          topic_tags: rawLlmResult?.topic_tags ?? [],
         }
       : null;
 

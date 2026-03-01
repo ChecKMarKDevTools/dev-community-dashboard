@@ -373,6 +373,49 @@
     background: rgb(255 255 255 / 6%);
   }
 
+  /* ── Footer glass bar ─────────────────────────────────── */
+  .footer-glass {
+    background: linear-gradient(
+      to right,
+      var(--surface-secondary),
+      var(--surface-raised),
+      var(--surface-secondary)
+    );
+  }
+
+  .dark .footer-glass {
+    /* stylelint-disable-next-line property-no-vendor-prefix -- Safari requires -webkit- prefix for backdrop-filter */
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    box-shadow: 0 -4px 24px rgb(0 0 0 / 20%);
+    border-color: rgb(255 255 255 / 6%);
+    background: linear-gradient(
+      135deg,
+      rgb(15 23 42 / 85%) 0%,
+      rgb(30 41 59 / 75%) 50%,
+      rgb(15 23 42 / 85%) 100%
+    );
+  }
+
+  /* ── Scroll fade: subtle top/bottom gradient hints ────── */
+  .scroll-fade {
+    /* stylelint-disable-next-line property-no-vendor-prefix -- Safari requires -webkit- prefix for mask-image */
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      black 3%,
+      black 97%,
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      black 3%,
+      black 97%,
+      transparent 100%
+    );
+  }
+
   /* ── Selected card: accent-tinted glass + glow ring ────── */
   .card-active {
     box-shadow:

@@ -1,23 +1,34 @@
 /**
- * OpenAI integration for LLM-powered sentiment analysis.
+ * OpenAI integration for LLM-powered interaction quality analysis.
  *
  * Sends a batch of comments (with the parent post body for context) to the
- * OpenAI Responses API and receives per-comment sentiment scores plus an
- * overall volatility metric.
+ * OpenAI Responses API and receives per-comment interaction scores plus
+ * overall volatility and topic extraction.
  *
  * Design:
- *  - Model cascade: gpt-5-mini → gpt-5 → null (graceful fallback to keywords)
+ *  - Model cascade: gpt-5-nano → gpt-5-mini → null (graceful fallback to heuristic)
  *  - Missing OPENAI_API_KEY returns null immediately (no throw)
  *  - Token budget: ~2 000 chars post body + ~2 000 chars comments ≈ 1 000 tokens
  *  - Out-of-range values are clamped with a warning, not rejected
  */
 
-export interface LLMSentimentResponse {
-  readonly comments: ReadonlyArray<{
-    readonly index: number;
-    readonly score: number;
-  }>;
+/** Per-comment interaction scores from LLM analysis. */
+export interface LLMCommentScore {
+  readonly index: number;
+  /** Tone: -1.0 (strongly negative) to 1.0 (strongly positive). */
+  readonly tone: number;
+  /** Relevance: 0.0 (off-topic) to 1.0 (directly on-topic). */
+  readonly relevance: number;
+  /** Depth: 0.0 (surface-level) to 1.0 (substantive/technical). */
+  readonly depth: number;
+  /** Constructiveness: 0.0 (noise) to 1.0 (advances the conversation). */
+  readonly constructiveness: number;
+}
+
+export interface LLMConversationResponse {
+  readonly comments: ReadonlyArray<LLMCommentScore>;
   readonly volatility: number;
+  readonly topic_tags: ReadonlyArray<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -28,41 +39,51 @@ const POST_CHAR_LIMIT = 2000;
 const COMMENT_CHAR_LIMIT = 500;
 const TOTAL_COMMENT_CHAR_LIMIT = 2000;
 
-const PRIMARY_MODEL = "gpt-5-mini";
-const FALLBACK_MODEL = "gpt-5";
+const PRIMARY_MODEL = "gpt-5-nano";
+const FALLBACK_MODEL = "gpt-5-mini";
 
-const SYSTEM_PROMPT = `TASK: Sentiment analysis of blog post comments.
+const SYSTEM_PROMPT = `TASK: Interaction signal analysis of blog post comments.
 INPUT: A blog post body followed by numbered comments.
 OUTPUT: JSON matching the provided schema.
 RULES:
-- For each comment, assign a sentiment score: -1.0 (strongly negative) to 1.0 (strongly positive).
-- Score reflects the comment's tone in context of the blog post topic.
+- Extract 1-3 topic keywords from the post body as topic_tags.
+- For each comment, assign interaction scores:
+  - tone: -1.0 (strongly negative) to 1.0 (strongly positive). Reflects the comment's emotional tone in context.
+  - relevance: 0.0 (completely off-topic) to 1.0 (directly addresses the post's topic).
+  - depth: 0.0 (surface-level reaction like "great post!") to 1.0 (substantive technical or thoughtful content).
+  - constructiveness: 0.0 (adds nothing to the conversation) to 1.0 (meaningfully advances the discussion).
 - Compute overall volatility: 0.0 (all comments have similar tone) to 1.0 (extreme variation in tone across comments).
-- Neutral/informational comments score near 0.0.
 - Do not explain. Output only valid JSON.`;
 
 const RESPONSE_SCHEMA = {
   type: "json_schema" as const,
-  name: "sentiment_analysis",
+  name: "conversation_analysis",
   strict: true,
   schema: {
     type: "object",
     properties: {
+      topic_tags: {
+        type: "array",
+        items: { type: "string" },
+      },
       comments: {
         type: "array",
         items: {
           type: "object",
           properties: {
             index: { type: "number" },
-            score: { type: "number" },
+            tone: { type: "number" },
+            relevance: { type: "number" },
+            depth: { type: "number" },
+            constructiveness: { type: "number" },
           },
-          required: ["index", "score"],
+          required: ["index", "tone", "relevance", "depth", "constructiveness"],
           additionalProperties: false,
         },
       },
       volatility: { type: "number" },
     },
-    required: ["comments", "volatility"],
+    required: ["topic_tags", "comments", "volatility"],
     additionalProperties: false,
   },
 };
@@ -94,7 +115,7 @@ export function truncateForTokenBudget(
 function clamp(value: number, min: number, max: number, label: string): number {
   if (value < min || value > max) {
     console.warn(
-      `OpenAI sentiment: ${label} value ${value} out of range [${min}, ${max}], clamping`,
+      `OpenAI analysis: ${label} value ${value} out of range [${min}, ${max}], clamping`,
     );
   }
   return Math.min(max, Math.max(min, value));
@@ -104,39 +125,74 @@ function clamp(value: number, min: number, max: number, label: string): number {
 function parseResponse(
   json: unknown,
   expectedCount: number,
-): LLMSentimentResponse | null {
+): LLMConversationResponse | null {
   if (
     typeof json !== "object" ||
     json === null ||
     !("comments" in json) ||
-    !("volatility" in json)
+    !("volatility" in json) ||
+    !("topic_tags" in json)
   ) {
     return null;
   }
 
   const raw = json as {
-    comments: Array<{ index: number; score: number }>;
+    comments: Array<{
+      index: number;
+      tone: number;
+      relevance: number;
+      depth: number;
+      constructiveness: number;
+    }>;
     volatility: number;
+    topic_tags: string[];
   };
 
-  if (!Array.isArray(raw.comments) || typeof raw.volatility !== "number") {
+  if (
+    !Array.isArray(raw.comments) ||
+    typeof raw.volatility !== "number" ||
+    !Array.isArray(raw.topic_tags)
+  ) {
     return null;
   }
 
   const comments = raw.comments
     .filter(
-      (c): c is { index: number; score: number } =>
-        typeof c.index === "number" && typeof c.score === "number",
+      (
+        c,
+      ): c is {
+        index: number;
+        tone: number;
+        relevance: number;
+        depth: number;
+        constructiveness: number;
+      } =>
+        typeof c.index === "number" &&
+        typeof c.tone === "number" &&
+        typeof c.relevance === "number" &&
+        typeof c.depth === "number" &&
+        typeof c.constructiveness === "number",
     )
     .slice(0, expectedCount)
     .map((c) => ({
       index: c.index,
-      score: clamp(c.score, -1, 1, `comment[${c.index}].score`),
+      tone: clamp(c.tone, -1, 1, `comment[${c.index}].tone`),
+      relevance: clamp(c.relevance, 0, 1, `comment[${c.index}].relevance`),
+      depth: clamp(c.depth, 0, 1, `comment[${c.index}].depth`),
+      constructiveness: clamp(
+        c.constructiveness,
+        0,
+        1,
+        `comment[${c.index}].constructiveness`,
+      ),
     }));
 
   const volatility = clamp(raw.volatility, 0, 1, "volatility");
+  const topic_tags = raw.topic_tags
+    .filter((t): t is string => typeof t === "string")
+    .slice(0, 3);
 
-  return { comments, volatility };
+  return { comments, volatility, topic_tags };
 }
 
 /** Call the OpenAI Responses API with structured output. */
@@ -144,7 +200,7 @@ async function callOpenAI(
   userMessage: string,
   model: string,
   apiKey: string,
-): Promise<LLMSentimentResponse | null> {
+): Promise<LLMConversationResponse | null> {
   const response = await globalThis.fetch(
     "https://api.openai.com/v1/responses",
     {
@@ -186,7 +242,7 @@ async function callOpenAI(
     throw new Error("OpenAI response missing text content");
   }
 
-  return JSON.parse(textContent) as LLMSentimentResponse;
+  return JSON.parse(textContent) as LLMConversationResponse;
 }
 
 // ---------------------------------------------------------------------------
@@ -194,17 +250,18 @@ async function callOpenAI(
 // ---------------------------------------------------------------------------
 
 /**
- * Analyze sentiment for a batch of comments using the OpenAI LLM.
+ * Analyze interaction quality for a batch of comments using the OpenAI LLM.
  *
- * Returns per-comment scores and overall volatility, or `null` when:
+ * Returns per-comment interaction scores, volatility, and topic tags,
+ * or `null` when:
  *  - OPENAI_API_KEY is not configured
  *  - Both model cascade attempts fail
  *  - The comment list is empty
  */
-export async function analyzeSentimentBatch(
+export async function analyzeConversation(
   postBody: string,
   commentTexts: ReadonlyArray<string>,
-): Promise<LLMSentimentResponse | null> {
+): Promise<LLMConversationResponse | null> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
 
@@ -217,7 +274,7 @@ export async function analyzeSentimentBatch(
 
   const userMessage = `POST BODY:\n${truncatedPost}\n\nCOMMENTS:\n${truncatedComments}`;
 
-  // Model cascade: try primary, then fallback
+  // Model cascade: try primary (nano), then fallback (mini)
   try {
     const result = await callOpenAI(userMessage, PRIMARY_MODEL, apiKey);
     return result ? parseResponse(result, commentTexts.length) : null;
@@ -229,7 +286,7 @@ export async function analyzeSentimentBatch(
     const result = await callOpenAI(userMessage, FALLBACK_MODEL, apiKey);
     return result ? parseResponse(result, commentTexts.length) : null;
   } catch {
-    // Both models failed — return null for keyword fallback
+    // Both models failed — return null for heuristic fallback
     return null;
   }
 }

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
-  analyzeSentimentBatch,
+  analyzeConversation,
   truncateForTokenBudget,
-  type LLMSentimentResponse,
+  type LLMConversationResponse,
 } from "./openai";
 
 // ---------------------------------------------------------------------------
@@ -10,7 +10,7 @@ import {
 // ---------------------------------------------------------------------------
 
 /** Build a successful OpenAI Responses API body. */
-function makeOpenAIResponse(data: LLMSentimentResponse): object {
+function makeOpenAIResponse(data: LLMConversationResponse): object {
   return {
     output: [
       {
@@ -58,7 +58,7 @@ describe("truncateForTokenBudget", () => {
   });
 });
 
-describe("analyzeSentimentBatch", () => {
+describe("analyzeConversation", () => {
   let savedApiKey: string | undefined;
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
@@ -80,26 +80,39 @@ describe("analyzeSentimentBatch", () => {
   it("returns null when OPENAI_API_KEY is missing", async () => {
     delete process.env.OPENAI_API_KEY;
 
-    const result = await analyzeSentimentBatch("post body", ["comment 1"]);
+    const result = await analyzeConversation("post body", ["comment 1"]);
 
     expect(result).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("returns null for empty comments array without making API call", async () => {
-    const result = await analyzeSentimentBatch("post body", []);
+    const result = await analyzeConversation("post body", []);
 
     expect(result).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("returns parsed response from successful gpt-5-mini call", async () => {
-    const llmData: LLMSentimentResponse = {
+  it("returns parsed response from successful gpt-5-nano call", async () => {
+    const llmData: LLMConversationResponse = {
       comments: [
-        { index: 0, score: 0.8 },
-        { index: 1, score: -0.3 },
+        {
+          index: 0,
+          tone: 0.8,
+          relevance: 0.9,
+          depth: 0.7,
+          constructiveness: 0.85,
+        },
+        {
+          index: 1,
+          tone: -0.3,
+          relevance: 0.6,
+          depth: 0.4,
+          constructiveness: 0.3,
+        },
       ],
       volatility: 0.6,
+      topic_tags: ["testing", "vitest"],
     };
 
     fetchSpy.mockResolvedValueOnce(
@@ -109,35 +122,51 @@ describe("analyzeSentimentBatch", () => {
       }),
     );
 
-    const result = await analyzeSentimentBatch("post body", [
+    const result = await analyzeConversation("post body", [
       "great stuff",
       "not so good",
     ]);
 
     expect(result).not.toBeNull();
     expect(result!.comments).toHaveLength(2);
-    expect(result!.comments[0].score).toBe(0.8);
-    expect(result!.comments[1].score).toBe(-0.3);
+    expect(result!.comments[0].tone).toBe(0.8);
+    expect(result!.comments[0].relevance).toBe(0.9);
+    expect(result!.comments[0].depth).toBe(0.7);
+    expect(result!.comments[0].constructiveness).toBe(0.85);
+    expect(result!.comments[1].tone).toBe(-0.3);
+    expect(result!.comments[1].relevance).toBe(0.6);
+    expect(result!.comments[1].depth).toBe(0.4);
+    expect(result!.comments[1].constructiveness).toBe(0.3);
     expect(result!.volatility).toBe(0.6);
+    expect(result!.topic_tags).toEqual(["testing", "vitest"]);
 
-    // Verify it called gpt-5-mini
+    // Verify it called gpt-5-nano
     const callBody = JSON.parse(
       (fetchSpy.mock.calls[0][1] as RequestInit).body as string,
     );
-    expect(callBody.model).toBe("gpt-5-mini");
+    expect(callBody.model).toBe("gpt-5-nano");
   });
 
-  it("falls back to gpt-5 when gpt-5-mini fails", async () => {
-    const llmData: LLMSentimentResponse = {
-      comments: [{ index: 0, score: 0.5 }],
+  it("falls back to gpt-5-mini when gpt-5-nano fails", async () => {
+    const llmData: LLMConversationResponse = {
+      comments: [
+        {
+          index: 0,
+          tone: 0.5,
+          relevance: 0.7,
+          depth: 0.6,
+          constructiveness: 0.8,
+        },
+      ],
       volatility: 0.2,
+      topic_tags: ["fallback"],
     };
 
-    // First call (gpt-5-mini) fails
+    // First call (gpt-5-nano) fails
     fetchSpy.mockResolvedValueOnce(
       new Response("Internal Server Error", { status: 500 }),
     );
-    // Second call (gpt-5) succeeds
+    // Second call (gpt-5-mini) succeeds
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify(makeOpenAIResponse(llmData)), {
         status: 200,
@@ -145,38 +174,54 @@ describe("analyzeSentimentBatch", () => {
       }),
     );
 
-    const result = await analyzeSentimentBatch("post body", ["comment"]);
+    const result = await analyzeConversation("post body", ["comment"]);
 
     expect(result).not.toBeNull();
-    expect(result!.comments[0].score).toBe(0.5);
+    expect(result!.comments[0].tone).toBe(0.5);
+    expect(result!.comments[0].relevance).toBe(0.7);
+    expect(result!.comments[0].depth).toBe(0.6);
+    expect(result!.comments[0].constructiveness).toBe(0.8);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
 
-    // Verify second call used gpt-5
+    // Verify second call used gpt-5-mini
     const secondCallBody = JSON.parse(
       (fetchSpy.mock.calls[1][1] as RequestInit).body as string,
     );
-    expect(secondCallBody.model).toBe("gpt-5");
+    expect(secondCallBody.model).toBe("gpt-5-mini");
   });
 
   it("returns null when both models fail", async () => {
     fetchSpy.mockResolvedValueOnce(new Response("Error", { status: 500 }));
     fetchSpy.mockResolvedValueOnce(new Response("Error", { status: 500 }));
 
-    const result = await analyzeSentimentBatch("post body", ["comment"]);
+    const result = await analyzeConversation("post body", ["comment"]);
 
     expect(result).toBeNull();
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
-  it("clamps out-of-range scores without rejecting", async () => {
+  it("clamps out-of-range tone, relevance, depth, constructiveness, and volatility", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const llmData: LLMSentimentResponse = {
+    const llmData: LLMConversationResponse = {
       comments: [
-        { index: 0, score: 1.5 },
-        { index: 1, score: -2.0 },
+        {
+          index: 0,
+          tone: 1.5,
+          relevance: 1.3,
+          depth: -0.2,
+          constructiveness: 2.0,
+        },
+        {
+          index: 1,
+          tone: -2.0,
+          relevance: -0.5,
+          depth: 1.8,
+          constructiveness: -1.0,
+        },
       ],
       volatility: 1.3,
+      topic_tags: ["clamping"],
     };
 
     fetchSpy.mockResolvedValueOnce(
@@ -186,14 +231,25 @@ describe("analyzeSentimentBatch", () => {
       }),
     );
 
-    const result = await analyzeSentimentBatch("post body", [
+    const result = await analyzeConversation("post body", [
       "comment 1",
       "comment 2",
     ]);
 
     expect(result).not.toBeNull();
-    expect(result!.comments[0].score).toBe(1.0);
-    expect(result!.comments[1].score).toBe(-1.0);
+    // tone clamped to [-1, 1]
+    expect(result!.comments[0].tone).toBe(1.0);
+    expect(result!.comments[1].tone).toBe(-1.0);
+    // relevance clamped to [0, 1]
+    expect(result!.comments[0].relevance).toBe(1.0);
+    expect(result!.comments[1].relevance).toBe(0.0);
+    // depth clamped to [0, 1]
+    expect(result!.comments[0].depth).toBe(0.0);
+    expect(result!.comments[1].depth).toBe(1.0);
+    // constructiveness clamped to [0, 1]
+    expect(result!.comments[0].constructiveness).toBe(1.0);
+    expect(result!.comments[1].constructiveness).toBe(0.0);
+    // volatility clamped to [0, 1]
     expect(result!.volatility).toBe(1.0);
     expect(warnSpy).toHaveBeenCalled();
 
@@ -216,15 +272,24 @@ describe("analyzeSentimentBatch", () => {
       }),
     );
 
-    const result = await analyzeSentimentBatch("post body", ["comment"]);
+    const result = await analyzeConversation("post body", ["comment"]);
 
     expect(result).toBeNull();
   });
 
   it("sends correct Authorization header and request shape", async () => {
-    const llmData: LLMSentimentResponse = {
-      comments: [{ index: 0, score: 0.0 }],
+    const llmData: LLMConversationResponse = {
+      comments: [
+        {
+          index: 0,
+          tone: 0.0,
+          relevance: 0.5,
+          depth: 0.5,
+          constructiveness: 0.5,
+        },
+      ],
       volatility: 0.0,
+      topic_tags: ["neutral"],
     };
 
     fetchSpy.mockResolvedValueOnce(
@@ -234,7 +299,7 @@ describe("analyzeSentimentBatch", () => {
       }),
     );
 
-    await analyzeSentimentBatch("my post", ["neutral comment"]);
+    await analyzeConversation("my post", ["neutral comment"]);
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [url, init] = fetchSpy.mock.calls[0];
@@ -246,7 +311,7 @@ describe("analyzeSentimentBatch", () => {
     expect(headers["Content-Type"]).toBe("application/json");
 
     const body = JSON.parse((init as RequestInit).body as string);
-    expect(body.instructions).toContain("Sentiment analysis");
+    expect(body.instructions).toContain("Interaction signal analysis");
     expect(body.input).toContain("POST BODY:");
     expect(body.input).toContain("COMMENTS:");
     expect(body.text.format).toBeDefined();
@@ -256,7 +321,7 @@ describe("analyzeSentimentBatch", () => {
     fetchSpy.mockRejectedValueOnce(new Error("Network error"));
     fetchSpy.mockRejectedValueOnce(new Error("Network error"));
 
-    const result = await analyzeSentimentBatch("post body", ["comment"]);
+    const result = await analyzeConversation("post body", ["comment"]);
 
     expect(result).toBeNull();
     expect(fetchSpy).toHaveBeenCalledTimes(2);

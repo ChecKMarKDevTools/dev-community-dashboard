@@ -24,6 +24,7 @@ import {
   MessageSquare,
   X,
 } from "lucide-react";
+import { Footer } from "@/components/ui/Footer";
 import { cn } from "@/lib/utils";
 import {
   getAttentionVariant,
@@ -41,6 +42,7 @@ import {
   formatSignalDisplay,
   computeAgeHours,
   sortByAttentionPriority,
+  getSignalSummary,
   SIGNAL_TOOLTIPS,
   DISCUSSION_STATE_SIGNALS,
 } from "@/lib/dashboard-helpers";
@@ -49,21 +51,21 @@ import {
   ChartContainer,
   LineChart,
   HorizontalBarChart,
-  DivergingBar,
+  SignalBar,
   MarkerTimeline,
 } from "@/components/ui/charts";
 import {
   getVelocityChartData,
   getVelocityBaseline,
   getParticipationData,
-  getSentimentData,
+  getSignalSpreadData,
+  getInteractionSignal,
+  getInteractionMethod,
+  getInteractionVolatility,
+  getTopicTags,
   getConstructivenessData,
   getRiskMarkers,
-  getSentimentMethod,
-  getSentimentMean,
-  getSentimentVolatility,
 } from "@/lib/metrics-helpers";
-import { POSITIVE_WORDS, NEGATIVE_WORDS } from "@/lib/sentiment-keywords";
 
 type DetailPanelProps = Readonly<{
   selectedPostId: number | null;
@@ -154,11 +156,35 @@ function DetailPanel({
           </Badge>
         </div>
 
-        <p className="text-text-muted border-surface-border mb-8 border-y py-4 text-sm">
-          {postDetails.reactions} reactions &middot; {postDetails.comments}{" "}
-          comments &middot; {extractWordCount(postDetails.explanations)} words
-          &middot; {computeAgeHours(postDetails.published_at)}h old
-        </p>
+        <div
+          className="border-surface-border mb-8 flex flex-wrap items-baseline gap-x-6 gap-y-2 border-y py-4"
+          aria-label="Post engagement metrics"
+        >
+          <span className="text-text-muted text-sm">
+            <span className="font-heading text-text-primary text-lg font-bold">
+              {postDetails.reactions}
+            </span>{" "}
+            reactions
+          </span>
+          <span className="text-text-muted text-sm">
+            <span className="font-heading text-text-primary text-lg font-bold">
+              {postDetails.comments}
+            </span>{" "}
+            comments
+          </span>
+          <span className="text-text-muted text-sm">
+            <span className="font-heading text-text-primary text-lg font-bold">
+              {extractWordCount(postDetails.explanations)}
+            </span>{" "}
+            words
+          </span>
+          <span className="text-text-muted text-sm">
+            <span className="font-heading text-text-primary text-lg font-bold">
+              {computeAgeHours(postDetails.published_at)}h
+            </span>{" "}
+            old
+          </span>
+        </div>
 
         <div className="grid gap-6 md:grid-cols-2">
           {/* Conversation Signals — LEFT/first */}
@@ -277,23 +303,85 @@ function DetailPanel({
             </ChartContainer>
           </div>
 
-          {/* Sentiment Spread */}
+          {/* Interaction Signal */}
           <ChartContainer
-            title="Sentiment Spread"
-            tooltip={
-              getSentimentMethod(postDetails.metrics) === "llm"
-                ? "LLM-powered tone analysis (gpt-5-mini). Each comment scored -1.0 to 1.0. Segments: positive (> 0.25), neutral (-0.25 to 0.25), negative (< -0.25)."
-                : `Keyword-based tone detection. Positive keywords: ${Array.from(POSITIVE_WORDS).join(", ")}. Negative keywords: ${Array.from(NEGATIVE_WORDS).join(", ")}.`
-            }
+            title="Interaction Signal"
+            tooltip="Shows the depth and substance of the conversation so far — use it to decide how you can contribute most constructively."
           >
-            <DivergingBar {...getSentimentData(postDetails.metrics)} />
-            {getSentimentMethod(postDetails.metrics) === "llm" && (
-              <p className="text-text-muted mt-2 text-xs">
-                Mean: {getSentimentMean(postDetails.metrics).toFixed(2)} |
-                Volatility:{" "}
-                {Math.round(getSentimentVolatility(postDetails.metrics) * 100)}%
+            <SignalBar {...getSignalSpreadData(postDetails.metrics)} />
+            <p className="text-text-secondary mt-3 text-xs leading-relaxed">
+              {getSignalSummary(
+                getInteractionSignal(postDetails.metrics),
+                getInteractionMethod(postDetails.metrics),
+              )}
+            </p>
+            <div className="mt-2 space-y-1.5">
+              <p className="text-text-muted text-xs">
+                Signal:{" "}
+                <span className="text-text-secondary font-medium">
+                  {getInteractionSignal(postDetails.metrics).toFixed(2)}
+                </span>
+                {" | "}
+                Method:{" "}
+                <span className="text-text-secondary font-medium">
+                  {getInteractionMethod(postDetails.metrics) === "llm"
+                    ? "LLM"
+                    : getInteractionMethod(postDetails.metrics) === "heuristic"
+                      ? "Heuristic"
+                      : "Unknown"}
+                </span>
+                {getInteractionMethod(postDetails.metrics) === "llm" && (
+                  <>
+                    {" | "}
+                    Volatility:{" "}
+                    <span className="text-text-secondary font-medium">
+                      {Math.round(
+                        getInteractionVolatility(postDetails.metrics) * 100,
+                      )}
+                      %
+                    </span>
+                  </>
+                )}
               </p>
-            )}
+              {getTopicTags(postDetails.metrics).length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {getTopicTags(postDetails.metrics).map((tag) => (
+                    <span
+                      key={tag}
+                      className="bg-surface-raised text-text-secondary rounded-md px-2 py-0.5 text-[10px] font-medium tracking-wide"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {/* Per-comment score breakdown — metric transparency */}
+              {postDetails.metrics?.interaction_scores &&
+                postDetails.metrics.interaction_scores.length > 0 && (
+                  <details className="mt-2">
+                    <summary className="text-text-muted hover:text-text-secondary cursor-pointer text-[10px]">
+                      Per-comment scores (
+                      {postDetails.metrics.interaction_scores.length})
+                    </summary>
+                    <div className="mt-1.5 max-h-40 space-y-1 overflow-y-auto">
+                      {postDetails.metrics.interaction_scores.map((s) => (
+                        <p
+                          key={s.index}
+                          className="text-text-muted text-[10px] tabular-nums"
+                        >
+                          <span className="text-text-secondary font-medium">
+                            #{s.index + 1}
+                          </span>{" "}
+                          tone {s.tone > 0 ? "+" : ""}
+                          {s.tone.toFixed(1)} · rel {s.relevance.toFixed(1)} ·
+                          depth {s.depth.toFixed(1)} · constr{" "}
+                          {s.constructiveness.toFixed(1)}
+                        </p>
+                      ))}
+                    </div>
+                  </details>
+                )}
+            </div>
           </ChartContainer>
 
           {/* Constructiveness Trend */}
@@ -430,7 +518,7 @@ export function Dashboard() {
       <aside
         aria-label="Post queue"
         className={cn(
-          "border-surface-border glass-panel bg-paper-clue flex w-full flex-col border-r transition-all duration-300",
+          "border-surface-border glass-panel bg-paper-clue flex w-full flex-col border-r transition-[width] duration-300",
           selectedPostId ? "hidden md:flex md:w-1/2 lg:w-4/12" : "w-full",
         )}
       >
@@ -440,7 +528,7 @@ export function Dashboard() {
               <h1 className="font-heading text-text-primary text-2xl font-bold tracking-tight">
                 DEV Community Dashboard
               </h1>
-              <p className="text-text-muted mt-1 text-sm">
+              <p className="text-text-muted mt-2 text-sm tracking-wide md:text-base">
                 Identify meaningful discussions on DEV.to by measuring
                 interaction patterns, not popularity.
               </p>
@@ -459,34 +547,52 @@ export function Dashboard() {
             </nav>
           </div>
         </header>
-        <div className="flex-1 space-y-4 overflow-y-auto p-4">
-          {posts.map((post) => (
-            <QueueCard
-              key={post.id}
-              selected={selectedPostId === post.id}
-              onClick={() => setSelectedPostId(post.id)}
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <h2 className="font-heading text-text-primary truncate text-base font-semibold">
-                    {post.title}
-                  </h2>
-                  <PostMeta
-                    author={post.author}
-                    date={post.published_at}
-                    className="mt-2"
-                  />
-                </div>
-                <Badge
-                  variant={getAttentionVariant(post.attention_level)}
-                  className="shrink-0"
-                  title={getCategoryTooltip(post.attention_level)}
+        <div className="scroll-fade flex-1 space-y-4 overflow-y-auto p-4">
+          <motion.div
+            className="space-y-4"
+            initial="hidden"
+            animate="visible"
+            variants={{
+              hidden: {},
+              visible: { transition: { staggerChildren: 0.04 } },
+            }}
+          >
+            {posts.map((post) => (
+              <motion.div
+                key={post.id}
+                variants={{
+                  hidden: { opacity: 0, y: 6 },
+                  visible: { opacity: 1, y: 0 },
+                }}
+                transition={{ duration: 0.2 }}
+              >
+                <QueueCard
+                  selected={selectedPostId === post.id}
+                  onClick={() => setSelectedPostId(post.id)}
                 >
-                  {getCategoryLabel(post.attention_level)}
-                </Badge>
-              </div>
-            </QueueCard>
-          ))}
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <h2 className="font-heading text-text-primary truncate text-base font-semibold">
+                        {post.title}
+                      </h2>
+                      <PostMeta
+                        author={post.author}
+                        date={post.published_at}
+                        className="mt-2"
+                      />
+                    </div>
+                    <Badge
+                      variant={getAttentionVariant(post.attention_level)}
+                      className="shrink-0"
+                      title={getCategoryTooltip(post.attention_level)}
+                    >
+                      {getCategoryLabel(post.attention_level)}
+                    </Badge>
+                  </div>
+                </QueueCard>
+              </motion.div>
+            ))}
+          </motion.div>
           {posts.length === 0 && (
             <EmptyState
               icon={AlertCircle}
@@ -494,6 +600,7 @@ export function Dashboard() {
             />
           )}
         </div>
+        <Footer />
       </aside>
 
       {/* Right panel: Post Details — only rendered when a post is selected */}

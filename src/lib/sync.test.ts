@@ -4,17 +4,18 @@ import {
   buildVelocityBuckets,
   buildConstructivenessBuckets,
   buildCommenterShares,
-  buildSentimentSpread,
-  buildSentimentSpreadFromScores,
+  buildSignalSpread,
+  computeCommentSignal,
   buildArticleMetrics,
   computeVolatilityFromScores,
 } from "./sync";
-import { analyzeSentimentBatch } from "./openai";
+import { analyzeConversation } from "./openai";
+import type { LLMConversationResponse } from "./openai";
 import { ForemUser, ForemComment, ForemClient } from "./forem";
 import { supabase } from "./supabase";
 
 vi.mock("./openai", () => ({
-  analyzeSentimentBatch: vi.fn().mockResolvedValue(null),
+  analyzeConversation: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("./forem", () => ({
@@ -1894,40 +1895,106 @@ describe("buildCommenterShares", () => {
   });
 });
 
-describe("buildSentimentSpread", () => {
-  it("computes correct percentages", () => {
-    const result = buildSentimentSpread(3, 2, 10);
-    expect(result.positive_pct).toBe(30);
-    expect(result.negative_pct).toBe(20);
-    expect(result.neutral_pct).toBe(50);
+describe("buildSignalSpread", () => {
+  it("computes correct high/mid/low percentages from enriched scores", () => {
+    // Quality composite = relevance*0.3 + depth*0.3 + constructiveness*0.3 + normalizedTone*0.1
+    // High quality: all max → 0.3+0.3+0.3+0.1 = 1.0 (> 0.6)
+    // Low quality: all zero, tone = -1 → 0+0+0+0 = 0.0 (< 0.3)
+    // Mid quality: moderate scores
+    const scores = [
+      {
+        index: 0,
+        tone: 1,
+        relevance: 1,
+        depth: 1,
+        constructiveness: 1,
+        id_code: "a",
+        body_hash: "h1",
+      }, // quality=1.0 → high
+      {
+        index: 1,
+        tone: 0,
+        relevance: 0.5,
+        depth: 0.5,
+        constructiveness: 0.5,
+        id_code: "b",
+        body_hash: "h2",
+      }, // quality=0.5*0.3*3 + 0.5*0.1 = 0.5 → mid
+      {
+        index: 2,
+        tone: -1,
+        relevance: 0,
+        depth: 0,
+        constructiveness: 0,
+        id_code: "c",
+        body_hash: "h3",
+      }, // quality=0.0 → low
+    ];
+    const result = buildSignalSpread(scores);
+    expect(result.signal_strong_pct).toBeCloseTo(100 / 3);
+    expect(result.signal_moderate_pct).toBeCloseTo(100 / 3);
+    expect(result.signal_faint_pct).toBeCloseTo(100 / 3);
   });
 
-  it("returns 100% neutral for zero comments", () => {
-    const result = buildSentimentSpread(0, 0, 0);
+  it("returns all zeros for empty scores (empty state)", () => {
+    const result = buildSignalSpread([]);
     expect(result).toEqual({
-      positive_pct: 0,
-      neutral_pct: 100,
-      negative_pct: 0,
+      signal_strong_pct: 0,
+      signal_moderate_pct: 0,
+      signal_faint_pct: 0,
     });
   });
 
-  it("handles all-positive comments", () => {
-    const result = buildSentimentSpread(5, 0, 5);
-    expect(result.positive_pct).toBe(100);
-    expect(result.negative_pct).toBe(0);
-    expect(result.neutral_pct).toBe(0);
+  it("handles all strong-signal scores", () => {
+    const scores = [
+      {
+        index: 0,
+        tone: 0.8,
+        relevance: 0.9,
+        depth: 0.9,
+        constructiveness: 0.9,
+        id_code: "a",
+        body_hash: "h1",
+      },
+      {
+        index: 1,
+        tone: 0.5,
+        relevance: 0.8,
+        depth: 0.8,
+        constructiveness: 0.8,
+        id_code: "b",
+        body_hash: "h2",
+      },
+    ];
+    const result = buildSignalSpread(scores);
+    expect(result.signal_strong_pct).toBe(100);
+    expect(result.signal_faint_pct).toBe(0);
   });
 
-  it("scales pos/neg proportionally when double-counted comments push sum over 100%", () => {
-    // 8 pos + 5 neg from 10 total → rawPos=80, rawNeg=50, rawTotal=130
-    // Both are scaled by 100/130 so the three segments always sum to exactly 100
-    // and DivergingBar widths match the displayed labels.
-    const result = buildSentimentSpread(8, 5, 10);
-    expect(result.neutral_pct).toBe(0);
-    const sum = result.positive_pct + result.neutral_pct + result.negative_pct;
-    expect(sum).toBeCloseTo(100, 5);
-    // Original pos/neg ratio must be preserved after scaling
-    expect(result.positive_pct / result.negative_pct).toBeCloseTo(8 / 5, 5);
+  it("handles all faint-signal scores", () => {
+    const scores = [
+      {
+        index: 0,
+        tone: -1,
+        relevance: 0,
+        depth: 0,
+        constructiveness: 0,
+        id_code: "a",
+        body_hash: "h1",
+      },
+      {
+        index: 1,
+        tone: -0.5,
+        relevance: 0.1,
+        depth: 0.05,
+        constructiveness: 0.05,
+        id_code: "b",
+        body_hash: "h2",
+      },
+    ];
+    const result = buildSignalSpread(scores);
+    expect(result.signal_faint_pct).toBe(100);
+    expect(result.signal_strong_pct).toBe(0);
   });
 });
 
@@ -1981,8 +2048,6 @@ describe("buildArticleMetrics", () => {
     expect(result.comments_per_hour).toBeCloseTo(3 / 5);
     expect(result.commenter_shares).toHaveLength(2);
     expect(result.commenter_shares[0].username).toBe("alice");
-    expect(result.positive_pct).toBeCloseTo((2 / 3) * 100);
-    expect(result.negative_pct).toBeCloseTo((1 / 3) * 100);
     expect(result.constructiveness_buckets).toHaveLength(2);
     expect(result.avg_comment_length).toBeCloseTo(50 / 3);
     expect(result.reply_ratio).toBeCloseTo(3 / 3);
@@ -1992,8 +2057,11 @@ describe("buildArticleMetrics", () => {
     expect(result.risk_components.short_content).toBe(false);
     expect(result.risk_components.no_engagement).toBe(false);
     expect(result.risk_components.engagement_credit).toBe(1);
-    expect(result.sentiment_flips).toBe(1);
-    expect(result.sentiment_method).toBe("keyword");
+    expect(result.interaction_method).toBe("heuristic");
+    expect(result.interaction_signal).toBeGreaterThanOrEqual(0);
+    expect(result.signal_strong_pct).toBeDefined();
+    expect(result.signal_moderate_pct).toBeDefined();
+    expect(result.signal_faint_pct).toBeDefined();
     expect(result.is_first_post).toBe(false);
     expect(result.help_keywords).toBe(1);
   });
@@ -2032,16 +2100,16 @@ describe("buildArticleMetrics", () => {
     expect(result.velocity_buckets).toEqual([]);
     expect(result.comments_per_hour).toBe(0);
     expect(result.commenter_shares).toEqual([]);
-    expect(result.neutral_pct).toBe(100);
+    expect(result.signal_moderate_pct).toBe(0);
     expect(result.avg_comment_length).toBe(0);
     expect(result.reply_ratio).toBe(0);
     expect(result.risk_components.short_content).toBe(true);
     expect(result.risk_components.no_engagement).toBe(true);
     expect(result.is_first_post).toBe(true);
-    expect(result.sentiment_method).toBe("keyword");
+    expect(result.interaction_method).toBe("heuristic");
   });
 
-  it("uses LLM sentiment data when llmResult is present", () => {
+  it("uses LLM interaction data when llmResult is present", () => {
     const metrics = {
       uniqueCommenters: new Set(["a"]),
       totalCommentWords: 10,
@@ -2057,13 +2125,47 @@ describe("buildArticleMetrics", () => {
       comment_depths: [],
     };
 
-    const llmResult = {
+    const llmResult: LLMConversationResponse = {
       comments: [
-        { index: 0, score: 0.8 },
-        { index: 1, score: -0.5 },
+        {
+          index: 0,
+          tone: 0.8,
+          relevance: 0.9,
+          depth: 0.7,
+          constructiveness: 0.8,
+        },
+        {
+          index: 1,
+          tone: -0.5,
+          relevance: 0.4,
+          depth: 0.3,
+          constructiveness: 0.2,
+        },
       ],
       volatility: 0.7,
+      topic_tags: ["javascript", "testing"],
     };
+
+    const enrichedScores = [
+      {
+        index: 0,
+        tone: 0.8,
+        relevance: 0.9,
+        depth: 0.7,
+        constructiveness: 0.8,
+        id_code: "c1",
+        body_hash: "h1",
+      },
+      {
+        index: 1,
+        tone: -0.5,
+        relevance: 0.4,
+        depth: 0.3,
+        constructiveness: 0.2,
+        id_code: "c2",
+        body_hash: "h2",
+      },
+    ];
 
     const result = buildArticleMetrics({
       metrics,
@@ -2078,114 +2180,129 @@ describe("buildArticleMetrics", () => {
       repeatedLinks: 0,
       isFirstPost: false,
       llmResult,
+      enrichedScores,
     });
 
-    expect(result.sentiment_method).toBe("llm");
-    expect(result.sentiment_scores).toEqual(llmResult.comments);
-    expect(result.sentiment_volatility).toBe(0.7);
-    expect(result.sentiment_mean).toBeCloseTo(0.15);
-    // 0.8 > 0.25 → positive, -0.5 < -0.25 → negative
-    expect(result.positive_pct).toBe(50);
-    expect(result.negative_pct).toBe(50);
-    expect(result.neutral_pct).toBe(0);
-    // sentiment_flips: round(0.7 * 2) = 1
-    expect(result.sentiment_flips).toBe(1);
+    expect(result.interaction_method).toBe("llm");
+    expect(result.interaction_scores).toEqual(enrichedScores);
+    expect(result.interaction_volatility).toBe(0.7);
+    expect(result.topic_tags).toEqual(["javascript", "testing"]);
+    // interaction_signal is mean of per-comment composite signal strengths
+    expect(result.interaction_signal).toBeGreaterThan(0);
+    expect(result.interaction_signal).toBeLessThanOrEqual(1);
+    // Signal spread should have values
+    expect(result.signal_strong_pct).toBeDefined();
+    expect(result.signal_moderate_pct).toBeDefined();
+    expect(result.signal_faint_pct).toBeDefined();
+    const sumPct =
+      (result.signal_strong_pct ?? 0) +
+      (result.signal_moderate_pct ?? 0) +
+      (result.signal_faint_pct ?? 0);
+    expect(sumPct).toBeCloseTo(100);
   });
 });
 
 // ---------------------------------------------------------------------------
-// buildSentimentSpreadFromScores
+// computeCommentSignal
 // ---------------------------------------------------------------------------
 
-describe("buildSentimentSpreadFromScores", () => {
-  it("returns 100% neutral for empty scores", () => {
-    const result = buildSentimentSpreadFromScores([]);
-    expect(result).toEqual({
-      positive_pct: 0,
-      neutral_pct: 100,
-      negative_pct: 0,
+describe("computeCommentSignal", () => {
+  it("returns max signal for perfect scores", () => {
+    const result = computeCommentSignal({
+      tone: 1.0,
+      relevance: 1.0,
+      depth: 1.0,
+      constructiveness: 1.0,
     });
+    // (1.0*0.3 + 1.0*0.3 + 1.0*0.3) + ((1+1)/2)*0.1 = 0.9 + 0.1 = 1.0
+    expect(result).toBeCloseTo(1.0);
   });
 
-  it("classifies all-positive scores", () => {
-    const scores = [
-      { index: 0, score: 0.8 },
-      { index: 1, score: 0.5 },
-      { index: 2, score: 0.3 },
-    ];
-    const result = buildSentimentSpreadFromScores(scores);
-    expect(result.positive_pct).toBeCloseTo(100);
-    expect(result.negative_pct).toBe(0);
+  it("returns minimum signal for worst scores", () => {
+    const result = computeCommentSignal({
+      tone: -1.0,
+      relevance: 0,
+      depth: 0,
+      constructiveness: 0,
+    });
+    // 0 + 0 + 0 + ((-1+1)/2)*0.1 = 0.0
+    expect(result).toBeCloseTo(0.0);
   });
 
-  it("classifies all-negative scores", () => {
-    const scores = [
-      { index: 0, score: -0.8 },
-      { index: 1, score: -0.5 },
-    ];
-    const result = buildSentimentSpreadFromScores(scores);
-    expect(result.negative_pct).toBe(100);
-    expect(result.positive_pct).toBe(0);
+  it("computes weighted composite for mixed scores", () => {
+    const result = computeCommentSignal({
+      tone: 0.0,
+      relevance: 0.5,
+      depth: 0.5,
+      constructiveness: 0.5,
+    });
+    // (0.5*0.3 + 0.5*0.3 + 0.5*0.3) + ((0+1)/2)*0.1 = 0.45 + 0.05 = 0.50
+    expect(result).toBeCloseTo(0.5);
   });
 
-  it("classifies mixed scores correctly", () => {
-    const scores = [
-      { index: 0, score: 0.8 },
-      { index: 1, score: 0.0 },
-      { index: 2, score: -0.5 },
-      { index: 3, score: 0.1 },
-    ];
-    const result = buildSentimentSpreadFromScores(scores);
-    // 1 positive (0.8), 1 negative (-0.5), 2 neutral (0.0, 0.1)
-    expect(result.positive_pct).toBe(25);
-    expect(result.negative_pct).toBe(25);
-    expect(result.neutral_pct).toBe(50);
-  });
+  it("weights tone at 10% and substance signals at 90%", () => {
+    // High substance, negative tone
+    const highSubstance = computeCommentSignal({
+      tone: -1.0,
+      relevance: 1.0,
+      depth: 1.0,
+      constructiveness: 1.0,
+    });
+    // (1*0.3 + 1*0.3 + 1*0.3) + ((−1+1)/2)*0.1 = 0.9 + 0.0 = 0.9
+    expect(highSubstance).toBeCloseTo(0.9);
 
-  it("treats boundary values at ±0.25 as neutral", () => {
-    const scores = [
-      { index: 0, score: 0.25 },
-      { index: 1, score: -0.25 },
-    ];
-    const result = buildSentimentSpreadFromScores(scores);
-    // Both are exactly at boundary — treated as neutral
-    expect(result.neutral_pct).toBe(100);
-    expect(result.positive_pct).toBe(0);
-    expect(result.negative_pct).toBe(0);
+    // Low substance, positive tone
+    const lowSubstance = computeCommentSignal({
+      tone: 1.0,
+      relevance: 0,
+      depth: 0,
+      constructiveness: 0,
+    });
+    // 0 + 0 + 0 + ((1+1)/2)*0.1 = 0.1
+    expect(lowSubstance).toBeCloseTo(0.1);
   });
 });
 
 // ---------------------------------------------------------------------------
-// LLM sentiment integration in syncArticles
+// LLM interaction signal integration in syncArticles
 // ---------------------------------------------------------------------------
 
-describe("LLM sentiment integration", () => {
+describe("LLM interaction signal integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("calls analyzeSentimentBatch during sync and falls back to keywords on null", async () => {
+  it("calls analyzeConversation during sync and falls back to heuristic on null", async () => {
     const article = makeArticle({ id: 900 });
     // Provide a comment so there is at least one new/uncached text to score.
     const comment = makeComment({ body_html: "<p>interesting point</p>" });
     setupBasicMocks([article], [comment]);
 
-    // Default mock returns null → keyword fallback
+    // Default mock returns null → heuristic fallback
     const result = await syncArticles(1);
 
     expect(result.synced).toBe(1);
-    expect(analyzeSentimentBatch).toHaveBeenCalled();
+    expect(analyzeConversation).toHaveBeenCalled();
   });
 
-  it("passes LLM result through when analyzeSentimentBatch succeeds", async () => {
+  it("passes LLM result through when analyzeConversation succeeds", async () => {
     const article = makeArticle({ id: 901 });
     const comment = makeComment({
       body_html: "<p>great post</p>",
     });
 
-    vi.mocked(analyzeSentimentBatch).mockResolvedValueOnce({
-      comments: [{ index: 0, score: 0.9 }],
+    vi.mocked(analyzeConversation).mockResolvedValueOnce({
+      comments: [
+        {
+          index: 0,
+          tone: 0.8,
+          relevance: 0.9,
+          depth: 0.7,
+          constructiveness: 0.8,
+        },
+      ],
       volatility: 0.1,
+      topic_tags: ["testing"],
     });
 
     setupBasicMocks([article], [comment]);
@@ -2193,7 +2310,7 @@ describe("LLM sentiment integration", () => {
     const result = await syncArticles(1);
 
     expect(result.synced).toBe(1);
-    expect(analyzeSentimentBatch).toHaveBeenCalledWith(
+    expect(analyzeConversation).toHaveBeenCalledWith(
       expect.any(String),
       expect.arrayContaining([expect.any(String)]),
     );
@@ -2270,9 +2387,11 @@ describe("incremental LLM scoring", () => {
   function setupMockWithCachedMetrics(
     articles: Record<string, unknown>[],
     comments: ForemComment[],
-    cachedSentimentScores: Array<{
-      index: number;
-      score: number;
+    cachedInteractionScores: Array<{
+      tone: number;
+      relevance: number;
+      depth: number;
+      constructiveness: number;
       id_code: string;
       body_hash: string;
     }> | null,
@@ -2293,8 +2412,8 @@ describe("incremental LLM scoring", () => {
     vi.mocked(ForemClient.getComments).mockResolvedValue(comments);
 
     const existingMetrics =
-      cachedSentimentScores !== null
-        ? { sentiment_scores: cachedSentimentScores }
+      cachedInteractionScores !== null
+        ? { interaction_scores: cachedInteractionScores }
         : null;
 
     const selectChain = {
@@ -2334,23 +2453,25 @@ describe("incremental LLM scoring", () => {
       [comment],
       [
         {
-          index: 0,
-          score: 0.5,
+          tone: 0.5,
+          relevance: 0.6,
+          depth: 0.4,
+          constructiveness: 0.5,
           id_code: "inc1",
           body_hash: bodyHash(cachedBodyHtml),
         },
       ],
     );
 
-    // analyzeSentimentBatch default mock returns null; we verify it is never called
-    vi.mocked(analyzeSentimentBatch).mockResolvedValue(null);
+    // analyzeConversation default mock returns null; we verify it is never called
+    vi.mocked(analyzeConversation).mockResolvedValue(null);
 
     const result = await syncArticles(1);
 
     expect(result.synced).toBe(1);
     expect(result.failed).toBe(0);
     // All comments hit the cache — LLM not needed
-    expect(analyzeSentimentBatch).not.toHaveBeenCalled();
+    expect(analyzeConversation).not.toHaveBeenCalled();
   });
 
   it("calls LLM only for new comment when one is cached and one is new", async () => {
@@ -2372,26 +2493,37 @@ describe("incremental LLM scoring", () => {
       [cachedComment, newComment],
       [
         {
-          index: 0,
-          score: 0.3,
+          tone: 0.3,
+          relevance: 0.5,
+          depth: 0.4,
+          constructiveness: 0.3,
           id_code: "inc2_cached",
           body_hash: bodyHash(cachedBodyHtml),
         },
       ],
     );
 
-    vi.mocked(analyzeSentimentBatch).mockResolvedValue({
-      comments: [{ index: 0, score: 0.7 }],
+    vi.mocked(analyzeConversation).mockResolvedValue({
+      comments: [
+        {
+          index: 0,
+          tone: 0.7,
+          relevance: 0.8,
+          depth: 0.6,
+          constructiveness: 0.7,
+        },
+      ],
       volatility: 0.2,
+      topic_tags: ["topic"],
     });
 
     const result = await syncArticles(1);
 
     expect(result.synced).toBe(1);
     expect(result.failed).toBe(0);
-    expect(analyzeSentimentBatch).toHaveBeenCalledTimes(1);
+    expect(analyzeConversation).toHaveBeenCalledTimes(1);
     // Only the new (uncached) comment text should be sent to the LLM
-    expect(analyzeSentimentBatch).toHaveBeenCalledWith(expect.any(String), [
+    expect(analyzeConversation).toHaveBeenCalledWith(expect.any(String), [
       stripHtml(newBodyHtml),
     ]);
   });
@@ -2410,17 +2542,28 @@ describe("incremental LLM scoring", () => {
       [editedComment],
       [
         {
-          index: 0,
-          score: 0.2,
+          tone: 0.2,
+          relevance: 0.3,
+          depth: 0.2,
+          constructiveness: 0.1,
           id_code: "inc3_edited",
           body_hash: "0000stale",
         },
       ],
     );
 
-    vi.mocked(analyzeSentimentBatch).mockResolvedValue({
-      comments: [{ index: 0, score: 0.6 }],
+    vi.mocked(analyzeConversation).mockResolvedValue({
+      comments: [
+        {
+          index: 0,
+          tone: 0.6,
+          relevance: 0.7,
+          depth: 0.5,
+          constructiveness: 0.6,
+        },
+      ],
       volatility: 0.1,
+      topic_tags: ["update"],
     });
 
     const result = await syncArticles(1);
@@ -2428,7 +2571,7 @@ describe("incremental LLM scoring", () => {
     expect(result.synced).toBe(1);
     expect(result.failed).toBe(0);
     // Hash mismatch → comment treated as edited → LLM re-scores it
-    expect(analyzeSentimentBatch).toHaveBeenCalledTimes(1);
+    expect(analyzeConversation).toHaveBeenCalledTimes(1);
   });
 
   it("preserves cached scores when LLM fails for a new comment in a partial batch", async () => {
@@ -2450,8 +2593,10 @@ describe("incremental LLM scoring", () => {
       [cachedComment, newComment],
       [
         {
-          index: 0,
-          score: 0.4,
+          tone: 0.4,
+          relevance: 0.5,
+          depth: 0.3,
+          constructiveness: 0.4,
           id_code: "inc4_cached",
           body_hash: bodyHash(cachedBodyHtml),
         },
@@ -2459,7 +2604,7 @@ describe("incremental LLM scoring", () => {
     );
 
     // LLM fails for the new comment
-    vi.mocked(analyzeSentimentBatch).mockResolvedValue(null);
+    vi.mocked(analyzeConversation).mockResolvedValue(null);
 
     const result = await syncArticles(1);
 

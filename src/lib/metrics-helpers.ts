@@ -45,17 +45,43 @@ export function getParticipationData(
   }));
 }
 
-/** Extract sentiment percentages for diverging bar. */
-export function getSentimentData(metrics?: ArticleMetrics | null): {
-  positive: number;
-  neutral: number;
-  negative: number;
+/** Extract interaction signal spread percentages for SignalBar. */
+export function getSignalSpreadData(metrics?: ArticleMetrics | null): {
+  strong: number;
+  moderate: number;
+  faint: number;
 } {
   return {
-    positive: metrics?.positive_pct ?? 0,
-    neutral: metrics?.neutral_pct ?? 100,
-    negative: metrics?.negative_pct ?? 0,
+    strong: metrics?.signal_strong_pct ?? 0,
+    moderate: metrics?.signal_moderate_pct ?? 0,
+    faint: metrics?.signal_faint_pct ?? 0,
   };
+}
+
+/** Return the composite interaction signal strength (0.0 to 1.0), defaulting to 0. */
+export function getInteractionSignal(metrics?: ArticleMetrics | null): number {
+  return metrics?.interaction_signal ?? 0;
+}
+
+/** Return which analysis method produced the interaction quality data. */
+export function getInteractionMethod(
+  metrics?: ArticleMetrics | null,
+): "llm" | "heuristic" | "unknown" {
+  return metrics?.interaction_method ?? "unknown";
+}
+
+/** Return topic tags extracted by LLM analysis. */
+export function getTopicTags(
+  metrics?: ArticleMetrics | null,
+): ReadonlyArray<string> {
+  return metrics?.topic_tags ?? [];
+}
+
+/** Return the interaction volatility (0.0 to 1.0), defaulting to 0. */
+export function getInteractionVolatility(
+  metrics?: ArticleMetrics | null,
+): number {
+  return metrics?.interaction_volatility ?? 0;
 }
 
 /** Transform constructiveness buckets into {x, y} points for LineChart. */
@@ -66,32 +92,6 @@ export function getConstructivenessData(
     x: b.hour,
     y: b.depth_index,
   }));
-}
-
-/** Return which sentiment analysis method produced the data. */
-export function getSentimentMethod(
-  metrics?: ArticleMetrics | null,
-): "llm" | "keyword" | "unknown" {
-  return metrics?.sentiment_method ?? "unknown";
-}
-
-/** Return the average sentiment score (-1.0 to 1.0), defaulting to 0. */
-export function getSentimentMean(metrics?: ArticleMetrics | null): number {
-  return metrics?.sentiment_mean ?? 0;
-}
-
-/** Return the sentiment volatility (0.0 to 1.0), defaulting to 0. */
-export function getSentimentVolatility(
-  metrics?: ArticleMetrics | null,
-): number {
-  return metrics?.sentiment_volatility ?? 0;
-}
-
-/** Return per-comment sentiment scores from LLM analysis. */
-export function getSentimentScores(
-  metrics?: ArticleMetrics | null,
-): ReadonlyArray<{ index: number; score: number }> {
-  return metrics?.sentiment_scores ?? [];
 }
 
 type RiskMarker = Readonly<{ label: string; active: boolean }>;
