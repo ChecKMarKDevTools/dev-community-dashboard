@@ -59,6 +59,17 @@ describe("ChartContainer", () => {
     );
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
+
+  it("tooltip button has accessible name derived from title", () => {
+    render(
+      <ChartContainer title="Reply Velocity" tooltip="Some help text">
+        <div />
+      </ChartContainer>,
+    );
+    const btn = screen.getByRole("button", { name: "Help: Reply Velocity" });
+    expect(btn).toBeInTheDocument();
+    expect(btn).toHaveAttribute("aria-describedby");
+  });
 });
 
 // ---------------------------------------------------------------------------

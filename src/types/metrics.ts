@@ -37,7 +37,7 @@ export interface ArticleMetrics {
   };
   /** Computed risk score (0 = no risk). */
   risk_score: number;
-  /** Number of sentiment polarity changes in the comment thread. */
+  /** Absolute difference between positive and negative comment counts (sentiment imbalance). */
   sentiment_flips: number;
   /** Whether this is the author's first post (joined < 30 days, 1 post in 24h). */
   is_first_post: boolean;

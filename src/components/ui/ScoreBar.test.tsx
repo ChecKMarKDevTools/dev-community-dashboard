@@ -67,4 +67,11 @@ describe("ScoreBar", () => {
     const labelEl = screen.getByText("Activity Level");
     expect(labelEl.tagName).toBe("SPAN");
   });
+
+  it("tooltip button has accessible name derived from label", () => {
+    render(<ScoreBar {...defaultProps} />);
+    const btn = screen.getByRole("button", { name: "About Activity Level" });
+    expect(btn).toBeInTheDocument();
+    expect(btn).toHaveAttribute("aria-describedby");
+  });
 });

@@ -60,7 +60,7 @@ jobs:
       - name: Test with coverage
         run: pnpm test:coverage
         env:
-          # Raise the V8 heap limit so the threads pool does not OOM during
+          # Raise the V8 heap limit so test workers do not OOM during
           # coverage collection and merging across 24+ test files.
           NODE_OPTIONS: "--max-old-space-size=4096"
 

@@ -5,6 +5,7 @@ import {
   ForemClient,
 } from "@/lib/forem";
 import { supabase } from "@/lib/supabase";
+import { POSITIVE_WORDS, NEGATIVE_WORDS } from "@/lib/sentiment-keywords";
 import type { AttentionCategory } from "@/types/dashboard";
 import type { ArticleMetrics } from "@/types/metrics";
 
@@ -27,7 +28,7 @@ export const PURGE_AGE_HOURS = 120; // 5 days
  * Forem API hard limit: 30 requests per 30 seconds.
  * The RequestQueue in forem.ts already enforces ≤5 parallel with a 1s
  * cooldown between batches. Fetching pages sequentially stays well within
- * the budget even for full 7-day bacfkill runs (typically 4–7 pages).
+ * the budget even for full 5-day backfill runs (typically 4–7 pages).
  */
 export const MAX_PER_PAGE = 100;
 
@@ -76,27 +77,8 @@ function countWords(textHtml?: string): number {
 // Sentiment keyword lists — exported so the UI can surface them as helper text
 // (Metric Transparency: every signal must be visible in the UI).
 // Sets for O(1) lookups (S7776).
-export const POSITIVE_WORDS = new Set([
-  "awesome",
-  "great",
-  "excellent",
-  "love",
-  "good",
-  "amazing",
-  "thanks",
-  "helpful",
-]);
-export const NEGATIVE_WORDS = new Set([
-  "terrible",
-  "bad",
-  "awful",
-  "hate",
-  "unhelpful",
-  "wrong",
-  "broken",
-  "issue",
-  "bug",
-]);
+// Re-export for backward compatibility with tests and other server modules.
+export { POSITIVE_WORDS, NEGATIVE_WORDS } from "@/lib/sentiment-keywords";
 
 const PROMO_WORDS = [
   "subscribe",

@@ -136,13 +136,13 @@ Each article is classified at sync time (not at read time) into one of four atte
 
 ### Categories
 
-| Category                 | Dashboard Label         | Key Conditions                                                                                                                  |
-| ------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| **NEEDS_RESPONSE**       | Awaiting Collaboration  | `time_since_post >= 30 min` AND `support_score >= 3` (first post, no reactions, no comments, help words)                        |
-| **POSSIBLY_LOW_QUALITY** | Anomalous Signal        | `risk_score >= 4` (high post freq, short body, no engagement, author promo keywords, repeated links, minus engagement credit)   |
-| **NEEDS_REVIEW**         | Rapid Discussion        | `comments >= 6` AND `heat_score >= 5` AND `reactions / comments < 1.2`                                                          |
-| **BOOST_VISIBILITY**     | Trending Signal         | `word_count >= 600` AND `unique_commenters >= 2` AND `avg_comment_length >= 18` AND `reactions <= 5` AND `attention_delta >= 3` |
-| **NORMAL**               | Steady Signal           | Default when no category thresholds are met; also forced for `devteam` org posts (weekly threads, challenges)                   |
+| Category                 | Dashboard Label        | Key Conditions                                                                                                                  |
+| ------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| **NEEDS_RESPONSE**       | Awaiting Collaboration | `time_since_post >= 30 min` AND `support_score >= 3` (first post, no reactions, no comments, help words)                        |
+| **POSSIBLY_LOW_QUALITY** | Anomalous Signal       | `risk_score >= 4` (high post freq, short body, no engagement, author promo keywords, repeated links, minus engagement credit)   |
+| **NEEDS_REVIEW**         | Rapid Discussion       | `comments >= 6` AND `heat_score >= 5` AND `reactions / comments < 1.2`                                                          |
+| **BOOST_VISIBILITY**     | Trending Signal        | `word_count >= 600` AND `unique_commenters >= 2` AND `avg_comment_length >= 18` AND `reactions <= 5` AND `attention_delta >= 3` |
+| **NORMAL**               | Steady Signal          | Default when no category thresholds are met; also forced for `devteam` org posts (weekly threads, challenges)                   |
 
 ### Sub-Scores
 
@@ -158,12 +158,12 @@ Each article is classified at sync time (not at read time) into one of four atte
 
 The detail panel groups information into three sections. These are display-level labels, not scoring inputs.
 
-| Section                  | Shows                                                                                                    |
-| ------------------------ | -------------------------------------------------------------------------------------------------------- |
-| **Conversation Signals** | Per-thread metrics: Word Count, Participants, Effort Level, Attention Shift (values rounded to integers) |
-| **Discussion State**     | Activity Level, Signal Divergence (with risk markers), and Constructiveness with qualitative labels      |
-| **Thread Momentum**      | A one-line observation about the current pace of the conversation                                        |
-| **Post Analytics**       | Per-post visualizations gated on available data (see below)                                              |
+| Section                  | Shows                                                                                                      |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| **Conversation Signals** | Per-thread metrics: Word Count, Participants, Effort Level, Attention Shift (values rounded to integers)   |
+| **Discussion State**     | Activity Level, Signal Divergence (with risk markers), and Constructiveness with qualitative labels        |
+| **Thread Momentum**      | A one-line observation about the current pace of the conversation                                          |
+| **Post Analytics**       | Per-post visualizations always rendered; charts show empty states when metrics are unavailable (see below) |
 
 ### Post Analytics Visualizations
 
