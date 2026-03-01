@@ -827,7 +827,12 @@ async function deepScoreAndPersist(
   let reaction_count = article.public_reactions_count;
   try {
     const fullArticle = await ForemClient.getArticle(article.id);
-    articleBodyText = fullArticle.body_markdown || fullArticle.body_html || "";
+    // Prefer plain-text body_markdown for phrase matching. When only HTML is
+    // available, strip tags first — HTML markup can split phrases across
+    // elements and produce false negatives for support-phrase detection.
+    articleBodyText =
+      fullArticle.body_markdown ||
+      (fullArticle.body_html ? stripHtmlTags(fullArticle.body_html) : "");
     word_count = countWords(articleBodyText);
     comment_count = fullArticle.comments_count;
     reaction_count = fullArticle.public_reactions_count;
@@ -845,12 +850,13 @@ async function deepScoreAndPersist(
   // Flatten comment texts with id_codes for incremental cache keying.
   const flatComments = flattenCommentTexts(comments);
 
-  // Fetch existing sentiment scores so unchanged comments skip re-scoring.
+  // Fetch existing interaction scores so unchanged comments skip re-scoring.
+  // maybeSingle() avoids an error on the first-ever sync when no row exists yet.
   const { data: existingRow } = await supabase
     .from("articles")
     .select("metrics")
     .eq("id", article.id)
-    .single();
+    .maybeSingle();
 
   // Extract existing metrics for cache building and topic_tags preservation.
   const existingMetrics = (existingRow as Record<string, unknown> | null)
