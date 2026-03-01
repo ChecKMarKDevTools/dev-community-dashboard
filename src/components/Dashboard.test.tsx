@@ -1033,4 +1033,141 @@ describe("Dashboard Component", () => {
     // Inline "Contributing signals:" label in Discussion State should not exist
     expect(screen.queryByText("Contributing signals:")).not.toBeInTheDocument();
   });
+
+  it("shows LLM-powered tooltip and mean/volatility when sentiment_method is 'llm'", async () => {
+    const detailWithLLM = {
+      ...mockPosts[0],
+      dev_url: "https://dev.to/testauthor/post-1",
+      recent_posts: [],
+      metrics: {
+        velocity_buckets: [],
+        comments_per_hour: 0,
+        commenter_shares: [],
+        positive_pct: 50,
+        neutral_pct: 25,
+        negative_pct: 25,
+        constructiveness_buckets: [],
+        avg_comment_length: 20,
+        reply_ratio: 0,
+        alternating_pairs: 0,
+        risk_components: {
+          frequency_penalty: 0,
+          short_content: false,
+          no_engagement: false,
+          promo_keywords: 0,
+          repeated_links: 0,
+          engagement_credit: 0,
+        },
+        risk_score: 0,
+        sentiment_flips: 1,
+        is_first_post: false,
+        help_keywords: 0,
+        sentiment_method: "llm",
+        sentiment_mean: 0.35,
+        sentiment_volatility: 0.6,
+        sentiment_scores: [
+          { index: 0, score: 0.8 },
+          { index: 1, score: -0.1 },
+        ],
+      },
+    };
+
+    globalThis.fetch = vi.fn().mockImplementation((url) => {
+      if (url === "/api/posts")
+        return Promise.resolve({ ok: true, json: async () => mockPosts });
+      if (url === "/api/posts/1")
+        return Promise.resolve({
+          ok: true,
+          json: async () => detailWithLLM,
+        });
+      return Promise.reject(new Error("Not found"));
+    });
+
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByText("Needs review post")).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByText("Needs review post").closest("div.border")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Sentiment Spread")).toBeInTheDocument();
+    });
+
+    // LLM tooltip text should be present
+    const tooltips = screen.getAllByRole("tooltip");
+    const tooltipTexts = tooltips.map((el) => el.textContent);
+    expect(tooltipTexts.some((t) => t?.includes("LLM-powered"))).toBe(true);
+
+    // Mean and volatility sub-line should be visible
+    expect(screen.getByText(/Mean: 0\.35/)).toBeInTheDocument();
+    expect(screen.getByText(/Volatility: 60%/)).toBeInTheDocument();
+  });
+
+  it("shows keyword-based tooltip when sentiment_method is 'keyword'", async () => {
+    const detailWithKeyword = {
+      ...mockPosts[0],
+      dev_url: "https://dev.to/testauthor/post-1",
+      recent_posts: [],
+      metrics: {
+        velocity_buckets: [],
+        comments_per_hour: 0,
+        commenter_shares: [],
+        positive_pct: 40,
+        neutral_pct: 40,
+        negative_pct: 20,
+        constructiveness_buckets: [],
+        avg_comment_length: 20,
+        reply_ratio: 0,
+        alternating_pairs: 0,
+        risk_components: {
+          frequency_penalty: 0,
+          short_content: false,
+          no_engagement: false,
+          promo_keywords: 0,
+          repeated_links: 0,
+          engagement_credit: 0,
+        },
+        risk_score: 0,
+        sentiment_flips: 1,
+        is_first_post: false,
+        help_keywords: 0,
+        sentiment_method: "keyword",
+      },
+    };
+
+    globalThis.fetch = vi.fn().mockImplementation((url) => {
+      if (url === "/api/posts")
+        return Promise.resolve({ ok: true, json: async () => mockPosts });
+      if (url === "/api/posts/1")
+        return Promise.resolve({
+          ok: true,
+          json: async () => detailWithKeyword,
+        });
+      return Promise.reject(new Error("Not found"));
+    });
+
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByText("Needs review post")).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByText("Needs review post").closest("div.border")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Sentiment Spread")).toBeInTheDocument();
+    });
+
+    // Keyword tooltip should be present
+    const tooltips = screen.getAllByRole("tooltip");
+    const tooltipTexts = tooltips.map((el) => el.textContent);
+    expect(tooltipTexts.some((t) => t?.includes("Keyword-based"))).toBe(true);
+
+    // Mean/volatility sub-line should NOT be shown for keyword method
+    expect(screen.queryByText(/Mean:/)).not.toBeInTheDocument();
+  });
 });

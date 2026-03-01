@@ -59,6 +59,9 @@ import {
   getSentimentData,
   getConstructivenessData,
   getRiskMarkers,
+  getSentimentMethod,
+  getSentimentMean,
+  getSentimentVolatility,
 } from "@/lib/metrics-helpers";
 import { POSITIVE_WORDS, NEGATIVE_WORDS } from "@/lib/sentiment-keywords";
 
@@ -277,9 +280,20 @@ function DetailPanel({
           {/* Sentiment Spread */}
           <ChartContainer
             title="Sentiment Spread"
-            tooltip={`Keyword-based tone detection. Positive keywords: ${Array.from(POSITIVE_WORDS).join(", ")}. Negative keywords: ${Array.from(NEGATIVE_WORDS).join(", ")}.`}
+            tooltip={
+              getSentimentMethod(postDetails.metrics) === "llm"
+                ? "LLM-powered tone analysis (gpt-5-mini). Each comment scored -1.0 to 1.0. Segments: positive (> 0.25), neutral (-0.25 to 0.25), negative (< -0.25)."
+                : `Keyword-based tone detection. Positive keywords: ${Array.from(POSITIVE_WORDS).join(", ")}. Negative keywords: ${Array.from(NEGATIVE_WORDS).join(", ")}.`
+            }
           >
             <DivergingBar {...getSentimentData(postDetails.metrics)} />
+            {getSentimentMethod(postDetails.metrics) === "llm" && (
+              <p className="text-text-muted mt-2 text-xs">
+                Mean: {getSentimentMean(postDetails.metrics).toFixed(2)} |
+                Volatility:{" "}
+                {Math.round(getSentimentVolatility(postDetails.metrics) * 100)}%
+              </p>
+            )}
           </ChartContainer>
 
           {/* Constructiveness Trend */}
