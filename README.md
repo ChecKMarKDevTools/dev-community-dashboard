@@ -183,6 +183,28 @@ sequenceDiagram
 
 Each article is classified at sync time (not at read time) into one of four attention categories, or `NORMAL` if no thresholds are met. The pipeline first computes common metrics, then applies category-specific IF logic.
 
+### Sentiment Analysis Flow
+
+The sync pipeline uses a two-tier approach for sentiment analysis: LLM-powered scoring when an OpenAI API key is configured, with automatic fallback to keyword-based counting when the key is absent or the LLM call fails.
+
+```mermaid
+graph LR
+  subgraph "deepScoreAndPersist()"
+    A["flattenCommentTexts()"] --> B["analyzeSentimentBatch()"]
+    B --> C{"gpt-5-mini\nsucceeds?"}
+    C -- Yes --> F["buildSentimentSpreadFromScores()\n(per-comment float scores)"]
+    C -- No --> D{"gpt-5\nsucceeds?"}
+    D -- Yes --> F
+    D -- No --> E["buildSentimentSpread()\n(keyword counting)"]
+    F --> G["ArticleMetrics JSONB\nsentiment_method: 'llm'"]
+    E --> H["ArticleMetrics JSONB\nsentiment_method: 'keyword'"]
+    G --> I["DivergingBar chart\n+ mean/volatility sub-line"]
+    H --> I
+  end
+```
+
+When the LLM path succeeds, each comment receives a float score (-1.0 to 1.0) and the pipeline computes volatility (0.0–1.0) directly. The `sentiment_method` field in the stored metrics indicates which method produced the data, and the UI surfaces this distinction via the tooltip.
+
 ### Common Metrics
 
 | Metric               | Formula                                                                | Importance/Explanation                                                                                  |
@@ -209,13 +231,13 @@ Each article is classified at sync time (not at read time) into one of four atte
 
 ### Sub-Scores
 
-| Sub‑score       | Formula / components                                                                                                                       | Importance/Explanation                                                                         |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `heat_score`    | `comments_per_hour + reply_ratio * 3 + alternating_pairs + sentiment_flips`                                                                | Gauges thread activity and engagement; higher scores flag lively discussions                   |
-| `risk_score`    | `max(0, freq_penalty + (word_count < 120 ? 2 : 0) + (no engagement ? 2 : 0) + author_promo_keywords + repeated_links - engagement_credit)` | Identifies potential quality issues; higher risk means the post may need moderation            |
-| `freq_penalty`  | `max(0, author_post_freq – 2) * 2` (only penalizes > 2 posts/day)                                                                          | Discourages spamming by reducing the score of frequent posters                                 |
-| `engage_credit` | `(reactions >= 10 ? 2 : 0) + (unique_commenters >= 5 ? 1 : 0)`                                                                             | Rewards well-engaged posts by offsetting risk, so lively discussions aren’t penalized          |
-| `support_score` | `(first_post ? 2 : 0) + (no reactions ? 1 : 0) + (no comments ? 2 : 0) + help_keywords`                                                    | Highlights posts needing community support; higher scores mark threads where newbies need help |
+| Sub‑score       | Formula / components                                                                                                                        | Importance/Explanation                                                                         |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `heat_score`    | `comments_per_hour + reply_ratio * 3 + alternating_pairs + sentiment_flips` (keyword mode) or `... + volatility * comment_count` (LLM mode) | Gauges thread activity and engagement; higher scores flag lively discussions                   |
+| `risk_score`    | `max(0, freq_penalty + (word_count < 120 ? 2 : 0) + (no engagement ? 2 : 0) + author_promo_keywords + repeated_links - engagement_credit)`  | Identifies potential quality issues; higher risk means the post may need moderation            |
+| `freq_penalty`  | `max(0, author_post_freq – 2) * 2` (only penalizes > 2 posts/day)                                                                           | Discourages spamming by reducing the score of frequent posters                                 |
+| `engage_credit` | `(reactions >= 10 ? 2 : 0) + (unique_commenters >= 5 ? 1 : 0)`                                                                              | Rewards well-engaged posts by offsetting risk, so lively discussions aren’t penalized          |
+| `support_score` | `(first_post ? 2 : 0) + (no reactions ? 1 : 0) + (no comments ? 2 : 0) + help_keywords`                                                     | Highlights posts needing community support; higher scores mark threads where newbies need help |
 
 ### Dashboard Signal Display
 
@@ -232,13 +254,13 @@ The detail panel groups information into three sections. These are display-level
 
 The detail panel renders five chart types for each post. These show motion and trajectory for a single post against its own baselines — never comparing posts to each other.
 
-| Chart                          | Component            | Data Source                     | What It Shows                                                                             |
-| ------------------------------ | -------------------- | ------------------------------- | ----------------------------------------------------------------------------------------- |
-| **Reply Velocity**             | `LineChart`          | `velocity_buckets`              | Hourly comment arrivals with a dashed baseline (average)                                  |
-| **Participation Distribution** | `HorizontalBarChart` | `commenter_shares`              | Top 5 commenters by share of total comments                                               |
-| **Sentiment Spread**           | `DivergingBar`       | `positive/neutral/negative_pct` | 3-segment bar showing sentiment balance                                                   |
-| **Constructiveness Trend**     | `LineChart`          | `constructiveness_buckets`      | Average reply depth per hour (higher = more threaded discussion)                          |
-| **Contributing Signals**       | `MarkerTimeline`     | `risk_components`               | The specific risk factors detected; each marker shows a signal that raised the risk score |
+| Chart                          | Component            | Data Source                     | What It Shows                                                                                                                                                                                                                |
+| ------------------------------ | -------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Reply Velocity**             | `LineChart`          | `velocity_buckets`              | Hourly comment arrivals with a dashed baseline (average)                                                                                                                                                                     |
+| **Participation Distribution** | `HorizontalBarChart` | `commenter_shares`              | Top 5 commenters by share of total comments                                                                                                                                                                                  |
+| **Sentiment Spread**           | `DivergingBar`       | `positive/neutral/negative_pct` | 3-segment bar showing sentiment balance; LLM mode uses per-comment float scores (thresholds ±0.25), keyword mode uses word matching. Tooltip and sub-line indicate which method and, for LLM, the mean score and volatility. |
+| **Constructiveness Trend**     | `LineChart`          | `constructiveness_buckets`      | Average reply depth per hour (higher = more threaded discussion)                                                                                                                                                             |
+| **Contributing Signals**       | `MarkerTimeline`     | `risk_components`               | The specific risk factors detected; each marker shows a signal that raised the risk score                                                                                                                                    |
 
 All charts are custom SVG components with zero external chart dependencies. They use the CSS custom property theme (`--chart-grid`, `--chart-axis`, `--chart-series-primary/secondary/tertiary`) for automatic light/dark mode support.
 
@@ -277,12 +299,13 @@ supabase db push
 
 Create a `.env` file in the project root with the following:
 
-| Variable                   | Required | Description                                        |
-| -------------------------- | -------- | -------------------------------------------------- |
-| `NEXT_PUBLIC_SUPABASE_URL` | ✅ Yes   | Supabase project URL                               |
-| `SUPABASE_SECRET_KEY`      | ✅ Yes   | Server-only key; bypasses RLS for sync writes      |
-| `CRON_SECRET`              | ✅ Yes   | Bearer token for `/api/cron` and `/api/admin/seed` |
-| `DEV_API_KEY`              | No       | Optional; raises Forem API rate limits             |
+| Variable                   | Required | Description                                                                                                                                                                   |
+| -------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL` | ✅ Yes   | Supabase project URL                                                                                                                                                          |
+| `SUPABASE_SECRET_KEY`      | ✅ Yes   | Server-only key; bypasses RLS for sync writes                                                                                                                                 |
+| `CRON_SECRET`              | ✅ Yes   | Bearer token for `/api/cron` and `/api/admin/seed`                                                                                                                            |
+| `DEV_API_KEY`              | No       | Optional; raises Forem API rate limits                                                                                                                                        |
+| `OPENAI_API_KEY`           | No       | Optional; enables LLM-powered sentiment analysis. When absent, the sync pipeline falls back to keyword-based sentiment. In production, stored in Google Cloud Secret Manager. |
 
 > `SUPABASE_SECRET_KEY` is intentionally **not** prefixed with `NEXT_PUBLIC_` — it is never sent to the browser.
 
@@ -375,6 +398,7 @@ If you are contributing, here is where things live:
 | ------------------------------------------------------- | -------------------------------------------------------------- |
 | Scoring & classification logic                          | `src/lib/sync.ts`                                              |
 | Sync pipeline (Forem → Supabase)                        | `src/lib/sync.ts`                                              |
+| LLM sentiment analysis (OpenAI)                         | `src/lib/openai.ts`                                            |
 | Dashboard UI components                                 | `src/components/Dashboard.tsx` and `src/components/ui/`        |
 | Chart components (SVG)                                  | `src/components/ui/charts/`                                    |
 | Chart data transformation helpers                       | `src/lib/metrics-helpers.ts`                                   |
