@@ -5,10 +5,16 @@ import {
   buildConstructivenessBuckets,
   buildCommenterShares,
   buildSentimentSpread,
+  buildSentimentSpreadFromScores,
   buildArticleMetrics,
 } from "./sync";
+import { analyzeSentimentBatch } from "./openai";
 import { ForemUser, ForemComment, ForemClient } from "./forem";
 import { supabase } from "./supabase";
+
+vi.mock("./openai", () => ({
+  analyzeSentimentBatch: vi.fn().mockResolvedValue(null),
+}));
 
 vi.mock("./forem", () => ({
   ForemClient: {
@@ -1946,6 +1952,7 @@ describe("buildArticleMetrics", () => {
       reactionCount: 10,
       repeatedLinks: 0,
       isFirstPost: false,
+      llmResult: null,
     });
 
     expect(result.velocity_buckets).toHaveLength(2);
@@ -1964,6 +1971,7 @@ describe("buildArticleMetrics", () => {
     expect(result.risk_components.no_engagement).toBe(false);
     expect(result.risk_components.engagement_credit).toBe(1);
     expect(result.sentiment_flips).toBe(1);
+    expect(result.sentiment_method).toBe("keyword");
     expect(result.is_first_post).toBe(false);
     expect(result.help_keywords).toBe(1);
   });
@@ -1996,6 +2004,7 @@ describe("buildArticleMetrics", () => {
       reactionCount: 0,
       repeatedLinks: 0,
       isFirstPost: true,
+      llmResult: null,
     });
 
     expect(result.velocity_buckets).toEqual([]);
@@ -2007,5 +2016,162 @@ describe("buildArticleMetrics", () => {
     expect(result.risk_components.short_content).toBe(true);
     expect(result.risk_components.no_engagement).toBe(true);
     expect(result.is_first_post).toBe(true);
+    expect(result.sentiment_method).toBe("keyword");
+  });
+
+  it("uses LLM sentiment data when llmResult is present", () => {
+    const metrics = {
+      uniqueCommenters: new Set(["a"]),
+      totalCommentWords: 10,
+      pos_comments: 1,
+      neg_comments: 0,
+      alternating_pairs: 0,
+      replies_with_parent: 0,
+      promo_keywords: 0,
+      help_keywords: 0,
+      externalDomainCounts: new Map<string, number>(),
+      comment_timestamps: [new Date()],
+      commenter_comment_counts: new Map([["a", 2]]),
+      comment_depths: [],
+    };
+
+    const llmResult = {
+      comments: [
+        { index: 0, score: 0.8 },
+        { index: 1, score: -0.5 },
+      ],
+      volatility: 0.7,
+    };
+
+    const result = buildArticleMetrics({
+      metrics,
+      publishedAt: "2024-01-01T10:00:00Z",
+      commentCount: 2,
+      ageHours: 3,
+      riskScore: 0,
+      frequencyPenalty: 0,
+      engagementCredit: 0,
+      wordCount: 500,
+      reactionCount: 5,
+      repeatedLinks: 0,
+      isFirstPost: false,
+      llmResult,
+    });
+
+    expect(result.sentiment_method).toBe("llm");
+    expect(result.sentiment_scores).toEqual(llmResult.comments);
+    expect(result.sentiment_volatility).toBe(0.7);
+    expect(result.sentiment_mean).toBeCloseTo(0.15);
+    // 0.8 > 0.25 → positive, -0.5 < -0.25 → negative
+    expect(result.positive_pct).toBe(50);
+    expect(result.negative_pct).toBe(50);
+    expect(result.neutral_pct).toBe(0);
+    // sentiment_flips: round(0.7 * 2) = 1
+    expect(result.sentiment_flips).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildSentimentSpreadFromScores
+// ---------------------------------------------------------------------------
+
+describe("buildSentimentSpreadFromScores", () => {
+  it("returns 100% neutral for empty scores", () => {
+    const result = buildSentimentSpreadFromScores([]);
+    expect(result).toEqual({
+      positive_pct: 0,
+      neutral_pct: 100,
+      negative_pct: 0,
+    });
+  });
+
+  it("classifies all-positive scores", () => {
+    const scores = [
+      { index: 0, score: 0.8 },
+      { index: 1, score: 0.5 },
+      { index: 2, score: 0.3 },
+    ];
+    const result = buildSentimentSpreadFromScores(scores);
+    expect(result.positive_pct).toBeCloseTo(100);
+    expect(result.negative_pct).toBe(0);
+  });
+
+  it("classifies all-negative scores", () => {
+    const scores = [
+      { index: 0, score: -0.8 },
+      { index: 1, score: -0.5 },
+    ];
+    const result = buildSentimentSpreadFromScores(scores);
+    expect(result.negative_pct).toBe(100);
+    expect(result.positive_pct).toBe(0);
+  });
+
+  it("classifies mixed scores correctly", () => {
+    const scores = [
+      { index: 0, score: 0.8 },
+      { index: 1, score: 0.0 },
+      { index: 2, score: -0.5 },
+      { index: 3, score: 0.1 },
+    ];
+    const result = buildSentimentSpreadFromScores(scores);
+    // 1 positive (0.8), 1 negative (-0.5), 2 neutral (0.0, 0.1)
+    expect(result.positive_pct).toBe(25);
+    expect(result.negative_pct).toBe(25);
+    expect(result.neutral_pct).toBe(50);
+  });
+
+  it("treats boundary values at ±0.25 as neutral", () => {
+    const scores = [
+      { index: 0, score: 0.25 },
+      { index: 1, score: -0.25 },
+    ];
+    const result = buildSentimentSpreadFromScores(scores);
+    // Both are exactly at boundary — treated as neutral
+    expect(result.neutral_pct).toBe(100);
+    expect(result.positive_pct).toBe(0);
+    expect(result.negative_pct).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LLM sentiment integration in syncArticles
+// ---------------------------------------------------------------------------
+
+describe("LLM sentiment integration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("calls analyzeSentimentBatch during sync and falls back to keywords on null", async () => {
+    const article = makeArticle({ id: 900 });
+    setupBasicMocks([article]);
+
+    // Default mock returns null → keyword fallback
+    const result = await syncArticles(1);
+
+    expect(result.synced).toBe(1);
+    expect(analyzeSentimentBatch).toHaveBeenCalled();
+  });
+
+  it("passes LLM result through when analyzeSentimentBatch succeeds", async () => {
+    const article = makeArticle({ id: 901 });
+    const comment = makeComment({
+      body_html: "<p>great post</p>",
+    });
+
+    vi.mocked(analyzeSentimentBatch).mockResolvedValueOnce({
+      comments: [{ index: 0, score: 0.9 }],
+      volatility: 0.1,
+    });
+
+    setupBasicMocks([article], [comment]);
+
+    const result = await syncArticles(1);
+
+    expect(result.synced).toBe(1);
+    expect(analyzeSentimentBatch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.arrayContaining([expect.any(String)]),
+    );
   });
 });

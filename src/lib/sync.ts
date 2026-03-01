@@ -10,6 +10,7 @@ import {
   NEGATIVE_WORDS,
   HELP_WORDS,
 } from "@/lib/sentiment-keywords";
+import { analyzeSentimentBatch, type LLMSentimentResponse } from "@/lib/openai";
 import type { AttentionCategory } from "@/types/dashboard";
 import type { ArticleMetrics } from "@/types/metrics";
 
@@ -234,6 +235,19 @@ function processCommentTree(
   }
 }
 
+/** Flatten all comment texts from a thread (depth-first, matching processCommentTree order). */
+function flattenCommentTexts(thread: ReadonlyArray<ForemComment>): string[] {
+  const texts: string[] = [];
+  function walk(comments: ReadonlyArray<ForemComment>): void {
+    for (const c of comments) {
+      texts.push(stripHtmlTags(c.body_html));
+      if (c.children?.length) walk(c.children);
+    }
+  }
+  walk(thread);
+  return texts;
+}
+
 /** Compute risk score with frequency penalty and engagement credit */
 function computeRiskScore(
   author_post_frequency: number,
@@ -338,6 +352,7 @@ function computeDerivedMetrics(
   reaction_count: number,
   time_since_post: number,
   word_count: number,
+  sentimentVolatility?: number,
 ): DerivedMetrics {
   const distinct_commenters = metrics.uniqueCommenters.size;
   const comments_per_hour = comment_count / Math.max(1, time_since_post / 60);
@@ -348,14 +363,20 @@ function computeDerivedMetrics(
     Math.log2(word_count + 1) + distinct_commenters + avg_comment_length / 40;
   const exposure = Math.max(1, reaction_count + comment_count);
   const attention_delta = effort - Math.log2(exposure + 1);
-  const sentiment_flips =
+
+  // When LLM volatility is available, use it directly as the sentiment
+  // contribution to heat_score. Otherwise fall back to the keyword-derived
+  // ratio of |pos − neg| / comment_count.
+  const sentimentFraction =
+    sentimentVolatility ??
     Math.abs(metrics.pos_comments - metrics.neg_comments) /
-    Math.max(1, comment_count);
+      Math.max(1, comment_count);
+
   const heat_score =
     comments_per_hour +
     reply_ratio * 3 +
     metrics.alternating_pairs +
-    sentiment_flips;
+    sentimentFraction;
 
   return {
     distinct_commenters,
@@ -458,6 +479,29 @@ export function buildSentimentSpread(
   return { positive_pct, neutral_pct, negative_pct };
 }
 
+/** Compute sentiment percentages from LLM per-comment float scores.
+ *
+ * Thresholds: score > 0.25 = positive, score < -0.25 = negative, else neutral.
+ */
+export function buildSentimentSpreadFromScores(
+  scores: ReadonlyArray<{ index: number; score: number }>,
+): { positive_pct: number; neutral_pct: number; negative_pct: number } {
+  if (scores.length === 0) {
+    return { positive_pct: 0, neutral_pct: 100, negative_pct: 0 };
+  }
+  let pos = 0;
+  let neg = 0;
+  for (const s of scores) {
+    if (s.score > 0.25) pos++;
+    else if (s.score < -0.25) neg++;
+  }
+  const total = scores.length;
+  const positive_pct = (pos / total) * 100;
+  const negative_pct = (neg / total) * 100;
+  const neutral_pct = Math.max(0, 100 - positive_pct - negative_pct);
+  return { positive_pct, neutral_pct, negative_pct };
+}
+
 /** Assemble the full ArticleMetrics object from comment tree data. */
 interface BuildMetricsInput {
   readonly metrics: CommentMetrics;
@@ -471,12 +515,13 @@ interface BuildMetricsInput {
   readonly reactionCount: number;
   readonly repeatedLinks: number;
   readonly isFirstPost: boolean;
+  readonly llmResult: LLMSentimentResponse | null;
 }
 
 export function buildArticleMetrics(
   input: Readonly<BuildMetricsInput>,
 ): ArticleMetrics {
-  const { metrics, publishedAt, commentCount, ageHours } = input;
+  const { metrics, publishedAt, commentCount, ageHours, llmResult } = input;
 
   const velocityBuckets = buildVelocityBuckets(
     metrics.comment_timestamps,
@@ -490,17 +535,41 @@ export function buildArticleMetrics(
     metrics.commenter_comment_counts,
     commentCount,
   );
-  const sentiment = buildSentimentSpread(
-    metrics.pos_comments,
-    metrics.neg_comments,
-    commentCount,
-  );
+
+  // Sentiment: prefer LLM scores when available, fall back to keyword counting
+  const useLLM = llmResult !== null;
+  const sentiment = useLLM
+    ? buildSentimentSpreadFromScores(llmResult.comments)
+    : buildSentimentSpread(
+        metrics.pos_comments,
+        metrics.neg_comments,
+        commentCount,
+      );
 
   const commentsPerHour = commentCount / Math.max(1, ageHours);
   const avgCommentLength =
     commentCount > 0 ? metrics.totalCommentWords / commentCount : 0;
   const replyRatio = metrics.replies_with_parent / Math.max(1, commentCount);
-  const sentimentFlips = Math.abs(metrics.pos_comments - metrics.neg_comments);
+
+  // sentiment_flips: LLM mode uses volatility * comment count;
+  // keyword mode uses absolute pos/neg difference (unchanged)
+  const sentimentFlips = useLLM
+    ? Math.round(llmResult.volatility * commentCount)
+    : Math.abs(metrics.pos_comments - metrics.neg_comments);
+
+  // LLM-specific fields (undefined when using keyword fallback)
+  const llmFields = useLLM
+    ? {
+        sentiment_scores: llmResult.comments,
+        sentiment_volatility: llmResult.volatility,
+        sentiment_mean:
+          llmResult.comments.length > 0
+            ? llmResult.comments.reduce((sum, c) => sum + c.score, 0) /
+              llmResult.comments.length
+            : 0,
+        sentiment_method: "llm" as const,
+      }
+    : { sentiment_method: "keyword" as const };
 
   return {
     velocity_buckets: velocityBuckets,
@@ -525,6 +594,7 @@ export function buildArticleMetrics(
     sentiment_flips: sentimentFlips,
     is_first_post: input.isFirstPost,
     help_keywords: metrics.help_keywords,
+    ...llmFields,
   };
 }
 
@@ -558,15 +628,15 @@ async function deepScoreAndPersist(
   } = input;
 
   let word_count = fallback_word_count;
+  let articleBodyText = "";
   // Use fresh counts from the individual article fetch when available —
   // the list API snapshot can be stale by the time we deep-score.
   let comment_count = article.comments_count;
   let reaction_count = article.public_reactions_count;
   try {
     const fullArticle = await ForemClient.getArticle(article.id);
-    word_count = countWords(
-      fullArticle.body_markdown || fullArticle.body_html || "",
-    );
+    articleBodyText = fullArticle.body_markdown || fullArticle.body_html || "";
+    word_count = countWords(articleBodyText);
     comment_count = fullArticle.comments_count;
     reaction_count = fullArticle.public_reactions_count;
   } catch {
@@ -580,12 +650,18 @@ async function deepScoreAndPersist(
   const metrics = createEmptyMetrics();
   processCommentTree(comments, username, metrics);
 
+  // LLM sentiment analysis — returns null when API key is absent or on failure,
+  // triggering keyword fallback in buildArticleMetrics.
+  const commentTexts = flattenCommentTexts(comments);
+  const llmResult = await analyzeSentimentBatch(articleBodyText, commentTexts);
+
   const derived = computeDerivedMetrics(
     metrics,
     comment_count,
     reaction_count,
     time_since_post,
     word_count,
+    llmResult?.volatility,
   );
 
   const repeated_links = detectRepeatedLinks(metrics.externalDomainCounts);
@@ -649,6 +725,7 @@ async function deepScoreAndPersist(
     reactionCount: reaction_count,
     repeatedLinks: repeated_links,
     isFirstPost: is_first_post,
+    llmResult,
   });
 
   const { error: articleError } = await supabase.from("articles").upsert({
