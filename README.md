@@ -98,7 +98,7 @@ graph TB
 
 ### Background Sync Flow
 
-Triggered by the GitHub Actions cron or `workflow_dispatch`. Each run fetches articles page-by-page (100/page) until the oldest article on a page exceeds the 5-day (120 h) sync window, filters to the 2 h – 120 h age range, deep-scores every valid article, backfills any articles with empty metrics, upserts results, and purges articles older than 5 days.
+Triggered by the GitHub Actions cron or `workflow_dispatch`. Each run: (1) purges articles older than 10 days (240 h) first, then (2) fetches articles page-by-page (100/page) until the oldest article on a page exceeds the 5-day (120 h) sync window, (3) filters to the 2 h – 120 h age range and deep-scores every valid article, and (4) backfills any articles that were persisted with empty metrics.
 
 ```mermaid
 sequenceDiagram
@@ -110,6 +110,11 @@ sequenceDiagram
 
   GHA->>Cron: POST (Authorization: Bearer)
   Cron->>Sync: syncArticles()
+
+  Note over Sync,SB: Step 1 — Purge articles older than 10 days before fetching
+  Sync->>SB: DELETE articles WHERE published_at < now - 240h (cascades to commenters)
+  SB-->>Sync: purged count
+
   Sync->>FC: getLatestArticles(page N, 100) [loop until age > 120h]
   FC-->>Sync: ForemArticle[] (all valid articles in 5-day window)
   Note over Sync: Filter 2h–120h window, deep-process all
@@ -125,7 +130,7 @@ sequenceDiagram
     Sync->>SB: upsert commenters rows
   end
 
-  Note over Sync,SB: Backfill — find articles with empty metrics
+  Note over Sync,SB: Step 4 — Backfill articles with empty metrics
   Sync->>SB: SELECT articles WHERE metrics = '{}'
   SB-->>Sync: stale article IDs
 
@@ -135,10 +140,6 @@ sequenceDiagram
     Note over Sync: Re-run deep scoring pipeline
     Sync->>SB: upsert article with computed metrics
   end
-
-  Note over Sync,SB: Purge — remove articles older than 5 days
-  Sync->>SB: DELETE articles WHERE published_at < now - 120h
-  SB-->>Sync: purged count
 
   Sync-->>Cron: {synced, failed, errors[]}
   Cron-->>GHA: {success, synced, failed, errors[]}
@@ -159,7 +160,7 @@ sequenceDiagram
 
   U->>D: Open dashboard
   D->>Posts: fetch()
-  Posts->>SB: SELECT articles WHERE published_at >= now-120h ORDER BY (non-NORMAL first, score DESC) LIMIT 50
+  Posts->>SB: SELECT articles WHERE published_at >= now-168h ORDER BY (non-NORMAL first, score DESC, published_at ASC) LIMIT 50
   SB-->>Posts: scored article rows
   Posts-->>D: article list
   D-->>U: Ranked list — actionable categories first (Awaiting Collaboration, Anomalous Signal, etc.), then Steady Signal
@@ -307,12 +308,12 @@ pnpm build            # type-check + Next.js production build
 
 ## API Reference
 
-| Method | Path              | Auth   | Description                                                       |
-| ------ | ----------------- | ------ | ----------------------------------------------------------------- |
-| `GET`  | `/api/posts`      | none   | Top 50 articles (5-day window), non-NORMAL first, then score desc |
-| `GET`  | `/api/posts/:id`  | none   | Article detail + 5 most recent posts by same author               |
-| `POST` | `/api/cron`       | Bearer | Sync all articles in the 5-day window from Forem                  |
-| `POST` | `/api/admin/seed` | Bearer | Same as cron — populate the database on first deploy              |
+| Method | Path              | Auth   | Description                                                                  |
+| ------ | ----------------- | ------ | ---------------------------------------------------------------------------- |
+| `GET`  | `/api/posts`      | none   | Top 50 articles (7-day window), non-NORMAL first → score desc → oldest first |
+| `GET`  | `/api/posts/:id`  | none   | Article detail + 5 most recent posts by same author                          |
+| `POST` | `/api/cron`       | Bearer | Purge articles > 10 days, then sync articles in the 5-day window from Forem  |
+| `POST` | `/api/admin/seed` | Bearer | Same as cron — populate the database on first deploy                         |
 
 ---
 
