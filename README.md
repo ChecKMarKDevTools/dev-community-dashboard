@@ -24,18 +24,17 @@
 [![Docker](https://img.shields.io/badge/Docker-Container-2496ED?style=flat&logo=docker&logoColor=white)](https://www.docker.com)
 [![ESLint](https://img.shields.io/badge/ESLint-Linting-4B32C3?style=flat&logo=eslint&logoColor=white)](https://eslint.org)
 [![Conventional Commits](https://img.shields.io/badge/Conventional_Commits-1.0.0-FE5196?style=flat&logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org)
+[![Prettier](https://img.shields.io/badge/Prettier-Formatting-F7B93E?style=flat&logo=prettier&logoColor=black)](https://prettier.io)
 [![Lefthook](https://img.shields.io/badge/Lefthook-Git_Hooks-FF1E1E?style=flat&logo=git&logoColor=white)](https://github.com/evilmartians/lefthook)
+[![Makefile](https://img.shields.io/badge/Makefile-Build-427819?style=flat&logo=gnu&logoColor=white)](https://www.gnu.org/software/make/)
 [![Google Cloud Run](https://img.shields.io/badge/Cloud_Run-Deployment-4285F4?style=flat&logo=googlecloud&logoColor=white)](https://cloud.google.com/run)
 
 <!-- AI Tooling -->
 
 [![Claude](https://img.shields.io/badge/Claude-Anthropic-D97757?style=flat&logo=anthropic&logoColor=white)](https://claude.ai)
-[![GitHub Copilot](https://img.shields.io/badge/GitHub_Copilot-AI-000000?style=flat&logo=githubcopilot&logoColor=white)](https://github.com/features/copilot)
 [![ChatGPT](https://img.shields.io/badge/ChatGPT-OpenAI-74AA9C?style=flat&logo=openai&logoColor=white)](https://chat.openai.com)
 [![Google Gemini](https://img.shields.io/badge/Gemini-Google-8E75B2?style=flat&logo=googlegemini&logoColor=white)](https://gemini.google.com)
-[![Kiro](https://img.shields.io/badge/Kiro-AWS-FF9900?style=flat&logo=amazonwebservices&logoColor=white)](https://kiro.dev)
-[![n8n](https://img.shields.io/badge/n8n-Automation-EA4B71?style=flat&logo=n8n&logoColor=white)](https://n8n.io)
-[![Ollama](https://img.shields.io/badge/Ollama-Local_LLM-000000?style=flat&logo=ollama&logoColor=white)](https://ollama.com)
+[![Leonardo.ai](https://img.shields.io/badge/Leonardo.ai-Image_Gen-7C3AED?style=flat&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjEwIi8+PC9zdmc+&logoColor=white)](https://leonardo.ai)
 
 <!-- Support -->
 
