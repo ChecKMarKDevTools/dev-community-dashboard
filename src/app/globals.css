@@ -74,7 +74,9 @@
     /* Text */
     --text-primary: #1e2230;
     --text-secondary: #4b5266;
-    --text-muted: #7a8196;
+
+    /* #5c6478: 5.8:1 on white, 4.9:1 on --surface-raised (#e3e6f0) — WCAG AA */
+    --text-muted: #5c6478;
 
     /* Accent — charcoal blue */
     --accent-primary: #475569;
