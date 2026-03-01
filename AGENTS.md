@@ -16,6 +16,7 @@
 - **Commits**: Make small, atomic commits with clear Conventional Commit messages. Each commit should address a single concern (e.g., one for scoring fixes, one for tests, one for docs). Always include the `Signed-off-by` flag (`-s`), the `Co-Authored-By` attribution line, and always use GPG signing (`-S`).
 - **Pre-commit Workflow**: Before committing, always: (1) run Sonar on all code, (2) ensure test coverage follows AGENTS.md testing rules, (3) update relevant documentation, (4) run all CI checks (`pnpm format:check`, `pnpm lint`, `pnpm test`, `pnpm build`).
 - **UI Verification**: When working on UI changes, you MUST use browser automation tools to navigate to the page and visually verify results from the user's perspective before returning a response. Never assume UI changes are correct without seeing them rendered.
+- **Metric Transparency**: Every metric the pipeline computes MUST be visible somewhere in the UI. No hidden metrics. If a score is derived from specific signals (e.g., keyword matches), the contributing signals must be surfaceable (e.g., via hover/tooltip). Users must be able to understand _why_ a value is what it is.
 
 ## Database Schema Notes
 
