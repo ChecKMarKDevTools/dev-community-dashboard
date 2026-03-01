@@ -52,10 +52,22 @@ export function getCategoryLabel(level: string): string {
  * Returns undefined for categories that don't need additional explanation.
  */
 export function getCategoryTooltip(level: string): string | undefined {
-  if (level === "NEEDS_RESPONSE") {
-    return `Awaiting Collaboration: post hasn't received meaningful engagement yet. Help-seeking phrases detected in comments trigger this category: ${HELP_WORDS.join(", ")}.`;
+  switch (level) {
+    case "NORMAL":
+      return "Steady Signal: conversation is following typical community patterns. No special attention needed.";
+    case "BOOST_VISIBILITY":
+      return "Trending Signal: engagement is climbing faster than usual. The conversation could benefit from broader visibility.";
+    case "NEEDS_RESPONSE":
+      return `Awaiting Collaboration: post hasn't received meaningful engagement yet. Help-seeking phrases detected in comments trigger this category: ${HELP_WORDS.join(", ")}.`;
+    case "NEEDS_REVIEW":
+      return "Rapid Discussion: comments are arriving quickly and the thread is getting long. Check whether it's productive debate or noise.";
+    case "SIGNAL_AT_RISK":
+      return "Anomalous Signal: conversation patterns diverge significantly from community norms. Worth a human look to understand why.";
+    case "SILENT_SIGNAL":
+      return "Silent Signal: post received reactions but little or no conversation. Readers noticed it — a thoughtful comment could get things started.";
+    default:
+      return undefined;
   }
-  return undefined;
 }
 
 export function getRecentPostBadgeVariant(
@@ -288,7 +300,8 @@ export function getSignalSummary(
   signal: number,
   method: "llm" | "heuristic" | "unknown",
 ): string {
-  if (method === "unknown") return "No interaction data available yet.";
+  if (method === "unknown")
+    return "Interaction scoring hasn't run on this post yet. Check back after the next sync.";
 
   if (signal >= 0.7) {
     return "Discussion is substantive and on-topic. A balanced, thoughtful contribution would fit naturally here.";

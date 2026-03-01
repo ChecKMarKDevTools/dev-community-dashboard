@@ -8,9 +8,9 @@ import { SignalBar } from "./SignalBar";
 
 describe("SignalBar", () => {
   describe("empty state", () => {
-    it("renders 'No interaction data' when all values are zero", () => {
+    it("renders 'Not enough data yet' when all values are zero", () => {
       render(<SignalBar strong={0} moderate={0} faint={0} />);
-      expect(screen.getByText("No interaction data")).toBeInTheDocument();
+      expect(screen.getByText("Not enough data yet")).toBeInTheDocument();
     });
 
     it("does not render an SVG when total is zero", () => {

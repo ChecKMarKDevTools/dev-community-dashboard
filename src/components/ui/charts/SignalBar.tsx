@@ -32,7 +32,7 @@ export function SignalBar({
       <div
         className={cn("text-text-muted text-center text-sm italic", className)}
       >
-        No interaction data
+        Not enough data yet
       </div>
     );
   }

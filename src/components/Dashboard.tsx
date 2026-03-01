@@ -282,7 +282,7 @@ function DetailPanel({
             {/* Reply Velocity */}
             <ChartContainer
               title="Reply Velocity"
-              tooltip="How quickly comments arrive after the post is published. Each bar represents one hour. A dashed baseline shows the average rate."
+              tooltip="When comments arrived after publication, hour by hour. Spikes may indicate a sudden surge of interest; gaps may mean the conversation stalled."
             >
               <LineChart
                 data={getVelocityChartData(postDetails.metrics)}
@@ -295,7 +295,7 @@ function DetailPanel({
             {/* Participation Distribution */}
             <ChartContainer
               title="Participation Distribution"
-              tooltip="Shows the top commenters ranked by their share of total comments. A healthy discussion has multiple participants rather than one dominant voice."
+              tooltip="Who is talking and how much. Multiple participants suggest broad interest; a single dominant voice may mean the thread needs fresh perspectives."
             >
               <HorizontalBarChart
                 data={getParticipationData(postDetails.metrics)}
@@ -306,9 +306,11 @@ function DetailPanel({
           {/* Interaction Signal */}
           <ChartContainer
             title="Interaction Signal"
-            tooltip="Shows the depth and substance of the conversation so far — use it to decide how you can contribute most constructively."
+            tooltip="Depth and substance of comments so far. Use this to decide how you can contribute most constructively — match your tone and depth to what the conversation needs."
           >
-            <SignalBar {...getSignalSpreadData(postDetails.metrics)} />
+            {getInteractionMethod(postDetails.metrics) !== "unknown" && (
+              <SignalBar {...getSignalSpreadData(postDetails.metrics)} />
+            )}
             <p className="text-text-secondary mt-3 text-xs leading-relaxed">
               {getSignalSummary(
                 getInteractionSignal(postDetails.metrics),
@@ -316,33 +318,33 @@ function DetailPanel({
               )}
             </p>
             <div className="mt-2 space-y-1.5">
-              <p className="text-text-muted text-xs">
-                Signal:{" "}
-                <span className="text-text-secondary font-medium">
-                  {getInteractionSignal(postDetails.metrics).toFixed(2)}
-                </span>
-                {" | "}
-                Method:{" "}
-                <span className="text-text-secondary font-medium">
-                  {getInteractionMethod(postDetails.metrics) === "llm"
-                    ? "LLM"
-                    : getInteractionMethod(postDetails.metrics) === "heuristic"
-                      ? "Heuristic"
-                      : "Unknown"}
-                </span>
-                {getInteractionMethod(postDetails.metrics) === "llm" && (
-                  <>
-                    {" | "}
-                    Volatility:{" "}
-                    <span className="text-text-secondary font-medium">
-                      {Math.round(
-                        getInteractionVolatility(postDetails.metrics) * 100,
-                      )}
-                      %
-                    </span>
-                  </>
-                )}
-              </p>
+              {getInteractionMethod(postDetails.metrics) !== "unknown" && (
+                <p className="text-text-muted text-xs">
+                  Signal:{" "}
+                  <span className="text-text-secondary font-medium">
+                    {getInteractionSignal(postDetails.metrics).toFixed(2)}
+                  </span>
+                  {" | "}
+                  Method:{" "}
+                  <span className="text-text-secondary font-medium">
+                    {getInteractionMethod(postDetails.metrics) === "llm"
+                      ? "LLM"
+                      : "Heuristic"}
+                  </span>
+                  {getInteractionMethod(postDetails.metrics) === "llm" && (
+                    <>
+                      {" | "}
+                      Volatility:{" "}
+                      <span className="text-text-secondary font-medium">
+                        {Math.round(
+                          getInteractionVolatility(postDetails.metrics) * 100,
+                        )}
+                        %
+                      </span>
+                    </>
+                  )}
+                </p>
+              )}
               {getTopicTags(postDetails.metrics).length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {getTopicTags(postDetails.metrics).map((tag) => (
@@ -387,7 +389,7 @@ function DetailPanel({
           {/* Constructiveness Trend */}
           <ChartContainer
             title="Constructiveness Trend"
-            tooltip="Average reply depth over time. Deeper threads indicate more back-and-forth discussion rather than standalone top-level comments."
+            tooltip="How reply depth changes over time. Rising depth means people are building on each other's ideas; flat or falling depth may mean the conversation is losing momentum."
           >
             <LineChart
               data={getConstructivenessData(postDetails.metrics)}
@@ -400,7 +402,7 @@ function DetailPanel({
           {/* Contributing Signals */}
           <ChartContainer
             title="Contributing Signals"
-            tooltip="The specific risk factors that were detected for this post. Each marker identifies a signal that contributed to the risk score."
+            tooltip="Specific behavioral signals detected in this conversation. Highlighted markers indicate patterns that diverge from typical community discussion."
           >
             <MarkerTimeline markers={getRiskMarkers(postDetails.metrics)} />
           </ChartContainer>

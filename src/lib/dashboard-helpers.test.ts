@@ -57,7 +57,15 @@ describe("getCategoryLabel", () => {
 });
 
 describe("getCategoryTooltip", () => {
-  it("returns a tooltip string for NEEDS_RESPONSE listing all help words", () => {
+  it("returns a tooltip for every known attention level", () => {
+    expect(getCategoryTooltip("NORMAL")).toContain("Steady Signal");
+    expect(getCategoryTooltip("BOOST_VISIBILITY")).toContain("Trending Signal");
+    expect(getCategoryTooltip("NEEDS_REVIEW")).toContain("Rapid Discussion");
+    expect(getCategoryTooltip("SIGNAL_AT_RISK")).toContain("Anomalous Signal");
+    expect(getCategoryTooltip("SILENT_SIGNAL")).toContain("Silent Signal");
+  });
+
+  it("returns a tooltip for NEEDS_RESPONSE that lists help words", () => {
     const tooltip = getCategoryTooltip("NEEDS_RESPONSE");
     expect(tooltip).toBeDefined();
     expect(tooltip).toContain("need help");
@@ -69,13 +77,9 @@ describe("getCategoryTooltip", () => {
     expect(tooltip).toContain("why doesn't");
   });
 
-  it("returns undefined for categories that need no tooltip", () => {
-    expect(getCategoryTooltip("NORMAL")).toBeUndefined();
-    expect(getCategoryTooltip("BOOST_VISIBILITY")).toBeUndefined();
-    expect(getCategoryTooltip("SIGNAL_AT_RISK")).toBeUndefined();
-    expect(getCategoryTooltip("NEEDS_REVIEW")).toBeUndefined();
-    expect(getCategoryTooltip("SILENT_SIGNAL")).toBeUndefined();
+  it("returns undefined only for unknown levels", () => {
     expect(getCategoryTooltip("UNKNOWN")).toBeUndefined();
+    expect(getCategoryTooltip("")).toBeUndefined();
   });
 });
 
@@ -514,8 +518,8 @@ describe("sortByAttentionPriority", () => {
 });
 
 describe("getSignalSummary", () => {
-  it("returns no-data message for unknown method", () => {
-    expect(getSignalSummary(0.5, "unknown")).toContain("No interaction data");
+  it("returns pending-sync message for unknown method", () => {
+    expect(getSignalSummary(0.5, "unknown")).toContain("hasn't run");
   });
 
   it("suggests balanced contribution for signal >= 0.7", () => {
