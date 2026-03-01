@@ -31,6 +31,7 @@ vi.mock("@/lib/supabase", () => ({
   supabase: {
     from: vi.fn(),
   },
+  isConfigured: vi.fn(() => true),
 }));
 
 // Performance tests are permanently enabled as per user requirement
