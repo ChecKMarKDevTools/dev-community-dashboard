@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { cn } from "@/lib/utils";
 
 type DivergingBarProps = Readonly<{
@@ -18,6 +19,7 @@ export function DivergingBar({
   negative,
   className,
 }: DivergingBarProps) {
+  const titleId = useId();
   const total = positive + neutral + negative;
   const barWidth = WIDTH - PADDING.left - PADDING.right;
   const height = BAR_HEIGHT + LABEL_Y_OFFSET + 8;
@@ -26,8 +28,6 @@ export function DivergingBar({
     return (
       <div
         className={cn("text-text-muted text-center text-sm italic", className)}
-        role="img"
-        aria-label="Empty sentiment chart"
       >
         No sentiment data
       </div>
@@ -42,9 +42,11 @@ export function DivergingBar({
     <svg
       viewBox={`0 0 ${WIDTH} ${height}`}
       className={cn("w-full", className)}
-      role="img"
-      aria-label={`Sentiment: ${Math.round(positive)}% positive, ${Math.round(neutral)}% neutral, ${Math.round(negative)}% negative`}
+      aria-labelledby={titleId}
     >
+      <title id={titleId}>
+        {`Sentiment: ${Math.round(positive)}% positive, ${Math.round(neutral)}% neutral, ${Math.round(negative)}% negative`}
+      </title>
       {/* Positive segment */}
       {posW > 0 && (
         <rect

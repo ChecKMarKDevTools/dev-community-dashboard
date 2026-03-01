@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { cn } from "@/lib/utils";
 
 type DataPoint = Readonly<{
@@ -41,6 +42,7 @@ export function LineChart({
   className,
   height = DEFAULT_HEIGHT,
 }: LineChartProps) {
+  const titleId = useId();
   const width = 400;
   const plotW = width - PADDING.left - PADDING.right;
   const plotH = height - PADDING.top - PADDING.bottom;
@@ -49,8 +51,6 @@ export function LineChart({
     return (
       <div
         className={cn("text-text-muted text-center text-sm italic", className)}
-        role="img"
-        aria-label="Empty line chart"
       >
         No data available
       </div>
@@ -89,9 +89,11 @@ export function LineChart({
     <svg
       viewBox={`0 0 ${width} ${height}`}
       className={cn("w-full", className)}
-      role="img"
-      aria-label={`Line chart${yLabel ? `: ${yLabel}` : ""}`}
+      aria-labelledby={titleId}
     >
+      <title id={titleId}>
+        {yLabel ? "Line chart: " + yLabel : "Line chart"}
+      </title>
       {/* Grid lines */}
       {gridYValues.map((yVal) => (
         <line
