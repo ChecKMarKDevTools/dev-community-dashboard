@@ -35,7 +35,7 @@ graph TB
 
 ### Background Sync Flow
 
-Triggered by the GitHub Actions cron or `workflow_dispatch`. Each run fetches articles page-by-page (100/page) until the oldest article on a page exceeds the 7-day (168 h) sync window, filters to the 2 h – 168 h age range, deep-scores every valid article, and upserts results.
+Triggered by the GitHub Actions cron or `workflow_dispatch`. Each run fetches articles page-by-page (100/page) until the oldest article on a page exceeds the 5-day (120 h) sync window, filters to the 2 h – 120 h age range, deep-scores every valid article, backfills any articles with empty metrics, upserts results, and purges articles older than 5 days.
 
 ```mermaid
 sequenceDiagram
@@ -47,9 +47,9 @@ sequenceDiagram
 
   GHA->>Cron: POST (Authorization: Bearer)
   Cron->>Sync: syncArticles()
-  Sync->>FC: getLatestArticles(page N, 100) [loop until age > 168h]
-  FC-->>Sync: ForemArticle[] (all valid articles in 7-day window)
-  Note over Sync: Filter 2h–168h window, light-score all, deep-process all
+  Sync->>FC: getLatestArticles(page N, 100) [loop until age > 120h]
+  FC-->>Sync: ForemArticle[] (all valid articles in 5-day window)
+  Note over Sync: Filter 2h–120h window, light-score all, deep-process all
 
   loop For each shortlisted article
     Sync->>FC: getUserByUsername(author) [cached]
@@ -81,7 +81,7 @@ sequenceDiagram
 
   U->>D: Open dashboard
   D->>Posts: fetch()
-  Posts->>SB: SELECT articles WHERE published_at >= now-168h ORDER BY (non-NORMAL first, score DESC) LIMIT 50
+  Posts->>SB: SELECT articles WHERE published_at >= now-120h ORDER BY (non-NORMAL first, score DESC) LIMIT 50
   SB-->>Posts: scored article rows
   Posts-->>D: article list
   D-->>U: Ranked list — actionable categories first (Community Waiting, Potential Rule Issue, etc.), then Routine Discussion
@@ -216,9 +216,9 @@ pnpm build            # type-check + Next.js production build
 
 | Method | Path              | Auth   | Description                                                       |
 | ------ | ----------------- | ------ | ----------------------------------------------------------------- |
-| `GET`  | `/api/posts`      | none   | Top 50 articles (7-day window), non-NORMAL first, then score desc |
+| `GET`  | `/api/posts`      | none   | Top 50 articles (5-day window), non-NORMAL first, then score desc |
 | `GET`  | `/api/posts/:id`  | none   | Article detail + 5 most recent posts by same author               |
-| `POST` | `/api/cron`       | Bearer | Sync all articles in the 7-day window from Forem                  |
+| `POST` | `/api/cron`       | Bearer | Sync all articles in the 5-day window from Forem                  |
 | `POST` | `/api/admin/seed` | Bearer | Same as cron — populate the database on first deploy              |
 
 ---
