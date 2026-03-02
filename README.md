@@ -67,7 +67,7 @@ This is **not** a moderation tool or a scorecard. It is designed to help helpers
 
 **Production:** [https://dev-signal.checkmarkdevtools.dev](https://dev-signal.checkmarkdevtools.dev) _(Cloud Run -- deployed post-initial-release)_
 
-v2.0.0 adds LLM interaction scoring, NEEDS_SUPPORT detection, and incremental caching. v1.0.0 was created for the [DEV Weekend Challenge](https://dev.to/devteam/happening-now-dev-weekend-challenge-submissions-due-march-2-at-759am-utc-5fg8).
+v1.1.0 adds LLM interaction scoring, NEEDS_SUPPORT detection, and incremental caching and was created for the [DEV Weekend Challenge](https://dev.to/devteam/happening-now-dev-weekend-challenge-submissions-due-march-2-at-759am-utc-5fg8).
 
 ---
 
